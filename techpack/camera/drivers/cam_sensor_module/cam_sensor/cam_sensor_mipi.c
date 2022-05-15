@@ -19,6 +19,7 @@
 #include "cam_sensor_mipi.h"
 #include "cam_sensor_adaptive_mipi_wide.h"
 #include "cam_sensor_adaptive_mipi_uw.h"
+#include "cam_sensor_adaptive_mipi_uw_dual.h"
 #include "cam_sensor_adaptive_mipi_tele.h"
 #include "cam_sensor_adaptive_mipi_front.h"
 #include "cam_sensor_adaptive_mipi_front_top.h"
@@ -184,6 +185,7 @@ int32_t cam_check_sensor_type(uint16_t sensor_id)
 	switch (sensor_id) {
  		case SENSOR_ID_IMX555:
 		case SENSOR_ID_S5KHM3:
+		case SENSOR_ID_S5KHM6:
 #if defined(CONFIG_SEC_B2Q_PROJECT)
 		case SENSOR_ID_IMX563:
 #endif
@@ -221,6 +223,12 @@ int32_t cam_check_sensor_type(uint16_t sensor_id)
  			sensor_type = FRONT_TOP;
 			break;
 #endif
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
+		case SENSOR_ID_HI1336:
+			sensor_type = UW_DULA;
+			break;
+#endif
+
 		default:
 			sensor_type = INVALID;
 			break;
@@ -246,8 +254,11 @@ void cam_mipi_init_setting(struct cam_sensor_ctrl_t *s_ctrl)
 			s_ctrl->mipi_info = sensor_wide_mipi_A_mode;
 		} else if (s_ctrl->sensor_mode == 1 && s_ctrl->sensor_mode <= num_wide_mipi_setting) {
 			s_ctrl->mipi_info = sensor_wide_mipi_B_mode;
-		}
-		else {
+		} else if (s_ctrl->sensor_mode == 2 && s_ctrl->sensor_mode <= num_wide_mipi_setting) {
+			s_ctrl->mipi_info = sensor_wide_mipi_C_mode;
+		} else if (s_ctrl->sensor_mode == 3 && s_ctrl->sensor_mode <= num_wide_mipi_setting) {
+			s_ctrl->mipi_info = sensor_wide_mipi_D_mode;
+		} else {
 			s_ctrl->mipi_info = sensor_wide_mipi_A_mode;
 		}
 	}
@@ -286,6 +297,10 @@ void cam_mipi_init_setting(struct cam_sensor_ctrl_t *s_ctrl)
 		else {
 			s_ctrl->mipi_info = sensor_front_top_mipi_A_mode;
 		}
+	}
+	else if (sensor_type == UW_DULA) {
+		CAM_INFO(CAM_SENSOR, "[CAM_DBG] UW dualization sensor_mode : %d / %d", s_ctrl->sensor_mode, num_uw_dual_mipi_setting);
+		s_ctrl->mipi_info = sensor_uw_dual_mipi_A_mode;
 	}
 	else {
 		CAM_ERR(CAM_SENSOR, "[CAM_DBG] Not support sensor_type : %d", sensor_type);

@@ -347,20 +347,19 @@ int synaptics_ts_i2c_write(struct synaptics_ts_data *ts, u8 *reg, int cnum, u8 *
 	mutex_unlock(&ts->i2c_mutex);
 
 	if (retry == SYNAPTICS_TS_I2C_RETRY_CNT) {
+		char result[32];
 		input_err(true, &ts->client->dev, "%s: I2C write over retry limit retry:%d\n", __func__, retry);
 		ts->plat_data->hw_param.comm_err_count++;
-		if (ts->debug_flag & SEC_TS_DEBUG_SEND_UEVENT) {
-			char result[32];
 
-			snprintf(result, sizeof(result), "RESULT=I2C");
-			sec_cmd_send_event_to_user(&ts->sec, NULL, result);
-		}
+		snprintf(result, sizeof(result), "RESULT=I2C");
+		sec_cmd_send_event_to_user(&ts->sec, NULL, result);
+
 		ret = -EIO;
 		if (ts->probe_done && !ts->reset_is_on_going && !ts->plat_data->shutdown_called)
 			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 	}
 
-	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_I2C_WRITE_CMD) {
+	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_WRITE_CMD) {
 		pr_info("sec_input:i2c_cmd: W:");
 		for (i = 0; i < cnum; i++)
 			pr_cont("%02X ", reg[i]);
@@ -494,21 +493,20 @@ int synaptics_ts_i2c_only_read(struct synaptics_ts_data *ts, u8 *data, int len)
 	mutex_unlock(&ts->i2c_mutex);
 
 	if (retry == SYNAPTICS_TS_I2C_RETRY_CNT) {
+		char result[32];
 		input_err(true, &ts->client->dev, "%s: I2C read over retry limit retry:%d\n", __func__, retry);
 		ts->plat_data->hw_param.comm_err_count++;
-		if (ts->debug_flag & SEC_TS_DEBUG_SEND_UEVENT) {
-			char result[32];
 
-			snprintf(result, sizeof(result), "RESULT=I2C");
-			sec_cmd_send_event_to_user(&ts->sec, NULL, result);
-		}
+		snprintf(result, sizeof(result), "RESULT=I2C");
+		sec_cmd_send_event_to_user(&ts->sec, NULL, result);
+
 		ret = -EIO;
 		if (ts->probe_done && !ts->reset_is_on_going && !ts->plat_data->shutdown_called)
 			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 	}
 
 	memcpy(data, buff, len);
-	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_I2C_READ_CMD) {
+	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_READ_CMD) {
 		pr_info("sec_input:i2c_cmd: only read:");
 		for (i = 0; i < len; i++)
 			pr_cont("%02X ", data[i]);
@@ -635,21 +633,20 @@ int synaptics_ts_i2c_read(struct synaptics_ts_data *ts, u8 *reg, int cnum, u8 *d
 	mutex_unlock(&ts->i2c_mutex);
 
 	if (retry == SYNAPTICS_TS_I2C_RETRY_CNT) {
+		char result[32];
 		input_err(true, &ts->client->dev, "%s: I2C read over retry limit retry:%d\n", __func__, retry);
 		ts->plat_data->hw_param.comm_err_count++;
-		if (ts->debug_flag & SEC_TS_DEBUG_SEND_UEVENT) {
-			char result[32];
 
-			snprintf(result, sizeof(result), "RESULT=I2C");
-			sec_cmd_send_event_to_user(&ts->sec, NULL, result);
-		}
+		snprintf(result, sizeof(result), "RESULT=I2C");
+		sec_cmd_send_event_to_user(&ts->sec, NULL, result);
+
 		ret = -EIO;
 		if (ts->probe_done && !ts->reset_is_on_going && !ts->plat_data->shutdown_called)
 			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 	}
 
 	memcpy(data, buff, len);
-	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_I2C_READ_CMD) {
+	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_READ_CMD) {
 		pr_info("sec_input:i2c_cmd: R:");
 		for (i = 0; i < cnum; i++)
 			pr_cont("%02X ", reg[i]);

@@ -333,7 +333,7 @@ exit:
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 /* Reset regulater control when aot_reset_regulator enabled
- * regulator name should be "panel_reset"
+ * regulator name should be "panel_reset" or "lcd_rst"
  */
 static int dsi_panel_reset_regulator(struct dsi_panel *panel, bool enable)
 {
@@ -346,7 +346,8 @@ static int dsi_panel_reset_regulator(struct dsi_panel *panel, bool enable)
 
 	/* Find number of "panel-reset" supply-name order among qcom,panel-supply-entries */
 	for (i = 0; i < panel->power_info.count; i++) {
-		if (!strcmp((panel->power_info.vregs + i)->vreg_name, "panel_reset"))
+		if (!strcmp((panel->power_info.vregs + i)->vreg_name, "panel_reset") ||
+				!strcmp((panel->power_info.vregs + i)->vreg_name, "lcd_rst"))
 			break;
 	}
 
@@ -528,11 +529,9 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 	/* Make not to turn on the panel power when ub_con_det.gpio is high (ub is not connected) */
 	if (unlikely(vdd->is_factory_mode)) {
 		if (gpio_is_valid(vdd->ub_con_det.gpio))
-			LCD_INFO(vdd, "ub_con_det.gpio = %d\n", gpio_get_value(vdd->ub_con_det.gpio));
+			LCD_INFO(vdd, "ub_con_det.gpio = %d\n", ss_gpio_get_value(vdd, vdd->ub_con_det.gpio));
 
-		vdd->ub_con_det.current_wakeup_context_gpio_status = gpio_get_value(vdd->ub_con_det.gpio);
-
-		vdd->ub_con_det.current_wakeup_context_gpio_status = gpio_get_value(vdd->ub_con_det.gpio);
+		vdd->ub_con_det.current_wakeup_context_gpio_status = ss_gpio_get_value(vdd, vdd->ub_con_det.gpio);
 		if (vdd->ub_con_det.current_wakeup_context_gpio_status) {
 			LCD_INFO(vdd, "Do not panel power on..\n");
 			return 0;
@@ -643,10 +642,22 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 	}
 #endif
 
+	if (panel->is_twm_en) {
+		DSI_DEBUG("TWM Enabled, skip panel power off\n");
+		return rc;
+	}
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
 		gpio_set_value(panel->reset_config.disp_en_gpio, 0);
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
+	if (gpio_is_valid(vdd->mipisel_gpio)) {
+		LCD_INFO(vdd, "set mipisel gpio to %d\n", !vdd->mipisel_on_val);
+		rc = gpio_direction_output(vdd->mipisel_gpio, !vdd->mipisel_on_val);
+		if (rc) {
+			DSI_ERR("unable to set dir for mipisel gpio rc=%d\n", rc);
+		}
+	}
+
     if (vdd->dtsi_data.samsung_dsi_off_reset_delay)
         usleep_range(vdd->dtsi_data.samsung_dsi_off_reset_delay,
                 vdd->dtsi_data.samsung_dsi_off_reset_delay);
@@ -1373,6 +1384,9 @@ static int dsi_panel_parse_pixel_format(struct dsi_host_common_cfg *host,
 		break;
 	case 18:
 		fmt = DSI_PIXEL_FORMAT_RGB666;
+		break;
+	case 30:
+		fmt = DSI_PIXEL_FORMAT_RGB101010;
 		break;
 	case 24:
 	default:
@@ -5024,10 +5038,13 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	if (panel->is_twm_en) {
+		DSI_DEBUG("TWM Enabled, skip idle off\n");
+		return rc;
+	}
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	ss_set_exclusive_tx_lock_from_qct(panel->panel_private, true);
 #endif
-
 	mutex_lock(&panel->panel_lock);
 	if (!panel->panel_initialized)
 		goto exit;
@@ -5626,9 +5643,17 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	/* sleep out command is included in DSI_CMD_SET_ON */
 	vdd->sleep_out_time = ktime_get();
 	LCD_INFO(vdd, "tx on_cmd +\n");
-#endif
 
+	/* skip cmds during splash booting : from 7225*/
+	if (vdd->skip_cmd_set_on_splash_enabled && vdd->samsung_splash_enabled) {
+		LCD_INFO(vdd, "skip send DSI_CMD_SET_ON during splash booting\n");
+		rc = 0;
+	} else {
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
+	}
+#else
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
+#endif
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n",
 		       panel->name, rc);
@@ -5729,13 +5754,16 @@ int dsi_panel_disable(struct dsi_panel *panel)
 		return -EINVAL;
 	}
 
+	if (panel->is_twm_en) {
+		DSI_DEBUG("TWM Enabled, skip panel disable\n");
+		return rc;
+	}
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	vdd = panel->panel_private;
 
 	LCD_INFO(vdd, "++\n");
 	ss_set_exclusive_tx_lock_from_qct(panel->panel_private, true);
 #endif
-
 	mutex_lock(&panel->panel_lock);
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)

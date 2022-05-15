@@ -942,7 +942,7 @@ exit:
 #define POC_INFO_FILE_PATH	("/efs/FactoryApp/poc_info")
 #define POC_USER_FILE_PATH	("/efs/FactoryApp/poc_user")
 
-static int poc_dpui_notifier_callback(struct notifier_block *self,
+__visible_for_testing int poc_dpui_notifier_callback(struct notifier_block *self,
 				 unsigned long event, void *data)
 {
 	struct POC *poc = container_of(self, struct POC, dpui_notif);
@@ -1069,7 +1069,7 @@ int ss_dsi_poc_init(struct samsung_display_driver_data *vdd)
 
 	vdd->panel_func.samsung_poc_ctrl = ss_dsi_poc_ctrl;
 
-	ret = misc_register(&vdd->poc_driver.dev);
+	ret = ss_wrapper_misc_register(vdd, &vdd->poc_driver.dev);
 	if (ret) {
 		LCD_INFO(vdd, "failed to register POC driver : %d\n", ret);
 		return ret;

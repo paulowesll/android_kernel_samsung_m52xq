@@ -240,6 +240,7 @@ static struct device_attribute sec_battery_attrs[] = {
 	SEC_BATTERY_ATTR(batt_main_con_det),
 	SEC_BATTERY_ATTR(batt_sub_con_det),
 	SEC_BATTERY_ATTR(batt_main_enb),
+	SEC_BATTERY_ATTR(batt_main_enb2),
 	SEC_BATTERY_ATTR(batt_sub_enb),
 #endif
 	SEC_BATTERY_ATTR(ext_event),
@@ -327,7 +328,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		break;
 	case BATT_VOLTAGE_NOW:
 		{
-			value.intval = 0;
+			value.intval = SEC_BATTERY_VOLTAGE_MV;
 			psy_do_property(battery->pdata->fuelgauge_name, get,
 				POWER_SUPPLY_PROP_VOLTAGE_NOW, value);
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
@@ -709,8 +710,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 					check_val = AFC_12V_OR_20W;
 				else if (is_hv_wire_type(battery->cable_type) ||
 					(is_pd_wire_type(battery->cable_type) &&
-					battery->pd_max_charge_power >= HV_CHARGER_STATUS_STANDARD1 &&
-					battery->hv_pdo) ||
+					battery->pd_max_charge_power >= HV_CHARGER_STATUS_STANDARD1) ||
 					battery->wire_status == SEC_BATTERY_CABLE_PREPARE_TA ||
 					battery->max_charge_power >= HV_CHARGER_STATUS_STANDARD1) /* 12000mW */
 					check_val = AFC_9V_OR_15W;
@@ -821,6 +821,7 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 
 			for (j = 0; j < 10; j++) {
 				msleep(175);
+				value.intval = SEC_BATTERY_VOLTAGE_MV;
 				psy_do_property(battery->pdata->fuelgauge_name, get,
 					POWER_SUPPLY_PROP_VOLTAGE_NOW, value);
 				ocv_data[j] = value.intval;
@@ -1870,6 +1871,14 @@ ssize_t sec_bat_show_attrs(struct device *dev,
 		{
 			if (battery->pdata->main_bat_enb_gpio)
 				value.intval = !gpio_get_value(battery->pdata->main_bat_enb_gpio);
+			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
+				value.intval);
+		}
+		break;
+	case BATT_MAIN_ENB2:
+		{
+			if (battery->pdata->main_bat_enb2_gpio)
+				value.intval = gpio_get_value(battery->pdata->main_bat_enb2_gpio);
 			i += scnprintf(buf + i, PAGE_SIZE - i, "%d\n",
 				value.intval);
 		}
@@ -3683,9 +3692,35 @@ ssize_t sec_bat_store_attrs(
 					/* deactivate main limiter */
 					gpio_direction_output(battery->pdata->main_bat_enb_gpio, 0);
 				}
-				pr_info("%s main enb = %d, sub enb = %d\n",
+				pr_info("%s main enb = %d, main enb2 = %d, sub enb = %d\n",
 					__func__,
 					gpio_get_value(battery->pdata->main_bat_enb_gpio),
+					gpio_get_value(battery->pdata->main_bat_enb2_gpio),
+					gpio_get_value(battery->pdata->sub_bat_enb_gpio));
+			}
+			ret = count;
+		}
+		break;
+	case BATT_MAIN_ENB2: /* Low active pin */
+		if (sscanf(buf, "%10d\n", &x) == 1) {
+			if (battery->pdata->main_bat_enb2_gpio) {
+				pr_info("%s main battery enb2 = %d\n", __func__, x);
+				if (x == 0) {
+					union power_supply_propval value = {0, };
+					/* activate main limiter */
+					gpio_direction_output(battery->pdata->main_bat_enb2_gpio, 0);
+					msleep(100);
+					value.intval = 1;
+					psy_do_property(battery->pdata->main_limiter_name, set,
+						POWER_SUPPLY_EXT_PROP_POWERMETER_ENABLE, value);
+				} else if (x == 1) {
+					/* deactivate main limiter */
+					gpio_direction_output(battery->pdata->main_bat_enb2_gpio, 1);
+				}
+				pr_info("%s main enb = %d, main enb2 = %d, sub enb = %d\n",
+					__func__,
+					gpio_get_value(battery->pdata->main_bat_enb_gpio),
+					gpio_get_value(battery->pdata->main_bat_enb2_gpio),
 					gpio_get_value(battery->pdata->sub_bat_enb_gpio));
 			}
 			ret = count;
@@ -3707,9 +3742,10 @@ ssize_t sec_bat_store_attrs(
 					/* deactivate sub limiter */
 					gpio_direction_output(battery->pdata->sub_bat_enb_gpio, 1);
 				}
-				pr_info("%s main enb = %d, sub enb = %d\n",
+				pr_info("%s main enb = %d, main enb2 = %d, sub enb = %d\n",
 					__func__,
 					gpio_get_value(battery->pdata->main_bat_enb_gpio),
+					gpio_get_value(battery->pdata->main_bat_enb2_gpio),
 					gpio_get_value(battery->pdata->sub_bat_enb_gpio));
 			}
 			ret = count;
@@ -3783,7 +3819,11 @@ ssize_t sec_bat_store_attrs(
 				if (is_pd_wire_type(battery->cable_type)) {
 					battery->update_pd_list = true;
 					pr_info("%s: update pd list\n", __func__);
-					sec_vote(battery->iv_vote, VOTER_HV_DISABLE, true, SEC_INPUT_VOLTAGE_5V);
+#if IS_ENABLED(CONFIG_DIRECT_CHARGING)
+					if (is_pd_apdo_wire_type(battery->cable_type))
+						psy_do_property(battery->pdata->charger_name, set,
+							POWER_SUPPLY_EXT_PROP_REFRESH_CHARGING_SOURCE, value);
+#endif
 					sec_vote_refresh(battery->iv_vote);
 				}
 			} else {
@@ -3794,11 +3834,14 @@ ssize_t sec_bat_store_attrs(
 				if (is_pd_wire_type(battery->cable_type)) {
 					battery->update_pd_list = true;
 					pr_info("%s: update pd list\n", __func__);
-					sec_vote(battery->iv_vote, VOTER_HV_DISABLE, false, 0);
+#if IS_ENABLED(CONFIG_DIRECT_CHARGING)
+					if (is_pd_apdo_wire_type(battery->cable_type))
+						psy_do_property(battery->pdata->charger_name, set,
+							POWER_SUPPLY_EXT_PROP_REFRESH_CHARGING_SOURCE, value);
+#endif
 					sec_vote_refresh(battery->iv_vote);
 				}
 			}
-
 			ret = count;
 		}
 		break;

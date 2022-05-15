@@ -317,13 +317,13 @@ show_info:
 		ts->plat_data->img_version_of_ic[i] = ts->config_id[i];
 	}
 
-	input_err(true, &ts->client->dev, "%s: ic:%02x%02x%02x%02x", __func__,
+	input_info(true, &ts->client->dev, "%s: ic:%02x%02x%02x%02x\n", __func__,
 		ts->plat_data->img_version_of_ic[0], ts->plat_data->img_version_of_ic[1],
 		ts->plat_data->img_version_of_ic[2], ts->plat_data->img_version_of_ic[3]);
 
-	input_err(true, &ts->client->dev, "%s: App info version: %d, status: %d\n", __func__,
+	input_info(true, &ts->client->dev, "%s: App info version: %d, status: %d\n", __func__,
 		synaptics_ts_pal_le2_to_uint(info->version), app_status);
-	input_err(true, &ts->client->dev, "%s: App info: max_objs: %d, max_x:%d, max_y: %d, img: %dx%d\n", __func__,
+	input_info(true, &ts->client->dev, "%s: App info: max_objs: %d, max_x:%d, max_y: %d, img: %dx%d\n", __func__,
 		ts->max_objects, ts->max_x, ts->max_y,
 		ts->rows, ts->cols);
 
@@ -1986,10 +1986,8 @@ void synaptics_ts_reset_work(struct work_struct *work)
 			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
 		mutex_unlock(&ts->modechange);
 
-		if (ts->debug_flag & SEC_TS_DEBUG_SEND_UEVENT) {
-			snprintf(result, sizeof(result), "RESULT=RESET");
-			sec_cmd_send_event_to_user(&ts->sec, NULL, result);
-		}
+		snprintf(result, sizeof(result), "RESULT=RESET");
+		sec_cmd_send_event_to_user(&ts->sec, NULL, result);
 
 		__pm_relax(ts->plat_data->sec_ws);
 
@@ -2021,12 +2019,8 @@ void synaptics_ts_reset_work(struct work_struct *work)
 	ts->reset_is_on_going = false;
 	mutex_unlock(&ts->modechange);
 
-	if (ts->debug_flag & SEC_TS_DEBUG_SEND_UEVENT) {
-		char result[32];
-
-		snprintf(result, sizeof(result), "RESULT=RESET");
-		sec_cmd_send_event_to_user(&ts->sec, NULL, result);
-	}
+	snprintf(result, sizeof(result), "RESULT=RESET");
+	sec_cmd_send_event_to_user(&ts->sec, NULL, result);
 
 	__pm_relax(ts->plat_data->sec_ws);
 }
@@ -2087,7 +2081,7 @@ void synaptics_ts_set_cover_type(struct synaptics_ts_data *ts, bool enable)
 	ret = synaptics_ts_set_dynamic_config(ts, DC_ENABLE_COVER, enable);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
-				"%s: Failed to send cover enable command: %d, ret:%d/n",
+				"%s: Failed to send cover enable command: %d, ret:%d\n",
 				__func__, enable, ret);
 		return;
 	}
@@ -2096,7 +2090,7 @@ void synaptics_ts_set_cover_type(struct synaptics_ts_data *ts, bool enable)
 		ret = synaptics_ts_set_dynamic_config(ts, DC_ENABLE_COVERTYPE, cover_cmd);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev,
-					"%s: Failed to send covertype command: %d, ret:%d/n",
+					"%s: Failed to send covertype command: %d, ret:%d\n",
 					__func__, cover_cmd, ret);
 			return;
 		}

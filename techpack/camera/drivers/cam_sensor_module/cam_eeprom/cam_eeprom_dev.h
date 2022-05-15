@@ -241,7 +241,7 @@ typedef struct _cam_eeprom_af_idx_t {
 	uint32_t     offset;
 } AfIdx_t;
 
-#if defined (CONFIG_SEC_M52XQ_PROJECT) || defined (CONFIG_SEC_GTS7FEWIFI_PROJECT)
+#if defined (CONFIG_SEC_M52XQ_PROJECT) || defined (CONFIG_SEC_GTS7FEWIFI_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT) || defined(CONFIG_SEC_XCOVERPRO2_PROJECT)
 #define AF_CAL_NEAR_OFFSET_FROM_AF                  0x000C
 #define AF_CAL_FAR_OFFSET_FROM_AF                   0x0000
 #define AF_CAL_M1_OFFSET_FROM_AF                    0x0004
@@ -366,7 +366,7 @@ extern char rear3_sensor_id[FROM_SENSOR_ID_SIZE + 1];
 extern DualTilt_t rear3_dual;
 #endif
 
-#if defined(CONFIG_SEC_P3Q_PROJECT) || defined(CONFIG_SEC_O3Q_PROJECT) || defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT)
+#if defined(CONFIG_SEC_P3Q_PROJECT) || defined(CONFIG_SEC_O3Q_PROJECT) || defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT)
 extern char rear3_fw_factory_ver[SYSFS_FW_VER_SIZE];
 extern char rear3_fw_user_ver[SYSFS_FW_VER_SIZE];
 #endif

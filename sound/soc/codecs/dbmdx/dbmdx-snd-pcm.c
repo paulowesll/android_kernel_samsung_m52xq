@@ -28,7 +28,7 @@
 #include <sound/soc.h>
 #include <linux/kthread.h>
 #include <linux/delay.h>
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 #include <linux/of.h>
 #endif
 #include <linux/dma-mapping.h>
@@ -43,14 +43,14 @@
 #define MAX_PERIOD_SIZE		(MAX_BUFFER_SIZE / 64)
 #define USE_FORMATS		(SNDRV_PCM_FMTBIT_S16_LE)
 
-#ifdef DBMDX_PCM_RATE_8000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_8000_SUPPORTED)
 #define USE_RATE_MIN		8000
 #else
 #define USE_RATE_MIN		16000
 #endif
 #define USE_RATE_MAX		48000
 #define USE_CHANNELS_MIN	1
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 #define USE_CHANNELS_MAX	4
 #else
 #define USE_CHANNELS_MAX	2
@@ -59,7 +59,6 @@
 #define USE_PERIODS_MAX		1024
 /* 3 seconds + 4 bytes for position */
 #define REAL_BUFFER_SIZE	(MAX_BUFFER_SIZE + 4)
-unsigned long _substream;
 
 struct snd_dbmdx {
 	struct snd_soc_card *card;
@@ -68,7 +67,7 @@ struct snd_dbmdx {
 
 struct snd_dbmdx_runtime_data {
 	struct snd_pcm_substream *substream;
-	struct timer_list *timer;
+	struct timer_list timer;
 	bool timer_is_active;
 	struct delayed_work pcm_start_capture_work;
 	struct delayed_work pcm_stop_capture_work;
@@ -86,13 +85,13 @@ static struct snd_pcm_hardware dbmdx_pcm_hardware = {
 				 SNDRV_PCM_INFO_BATCH),
 	.formats =		USE_FORMATS,
 	.rates =		(SNDRV_PCM_RATE_16000 |
-#ifdef DBMDX_PCM_RATE_8000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_8000_SUPPORTED)
 				SNDRV_PCM_RATE_8000  |
 #endif
-#ifdef DBMDX_PCM_RATE_32000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_32000_SUPPORTED)
 				SNDRV_PCM_RATE_32000 |
 #endif
-#ifdef DBMDX_PCM_RATE_44100_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_44100_SUPPORTED)
 				SNDRV_PCM_RATE_44100 |
 #endif
 				SNDRV_PCM_RATE_48000),
@@ -168,13 +167,12 @@ void stream_set_position(struct snd_pcm_substream *substream,
 	*(u32 *)&(runtime->dma_area[MAX_BUFFER_SIZE]) = position;
 }
 
-static void dbmdx_pcm_timer(struct timer_list *time)
+static void dbmdx_pcm_timer(struct timer_list *t)
 {
-	struct snd_pcm_substream *substream =
-				(struct snd_pcm_substream *)_substream;
+	struct snd_dbmdx_runtime_data *prtd = from_timer(prtd, t, timer);
+	struct snd_pcm_substream *substream = prtd->substream;
 	struct snd_pcm_runtime *runtime = substream->runtime;
-	struct snd_dbmdx_runtime_data *prtd = runtime->private_data;
-	struct timer_list *timer = prtd->timer;
+	struct timer_list *timer = &(prtd->timer);
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_component *component = rtd->codec_dai->component;
 
@@ -256,7 +254,7 @@ static int dbmdx_start_period_timer(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_dbmdx_runtime_data *prtd = runtime->private_data;
-	struct timer_list *timer = prtd->timer;
+	struct timer_list *timer = &(prtd->timer);
 	unsigned long msecs;
 
 	pr_debug("%s\n", __func__);
@@ -273,7 +271,7 @@ static int dbmdx_stop_period_timer(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_dbmdx_runtime_data *prtd = runtime->private_data;
-	struct timer_list *timer = prtd->timer;
+	struct timer_list *timer = &(prtd->timer);
 
 	pr_debug("%s\n", __func__);
 
@@ -427,7 +425,7 @@ static int dbmdx_pcm_open(struct snd_pcm_substream *substream)
 
 	pr_debug("%s\n", __func__);
 
-	if (dbmdx_codec_lock(component)) {
+	if (dbmdx_component_lock(component)) {
 		ret = -EBUSY;
 		goto out;
 	}
@@ -438,16 +436,8 @@ static int dbmdx_pcm_open(struct snd_pcm_substream *substream)
 		goto out_unlock;
 	}
 
-	timer = kzalloc(sizeof(*timer), GFP_KERNEL);
-	if (!timer) {
-		ret = -ENOMEM;
-		goto out_free_prtd;
-	}
-
+	timer = &(prtd->timer);
 	timer_setup(timer, dbmdx_pcm_timer, 0);
-	_substream = (unsigned long)substream;
-
-	prtd->timer = timer;
 	prtd->substream = substream;
 	atomic_set(&prtd->command_in_progress, 0);
 	atomic_set(&prtd->number_of_cmds_in_progress, 0);
@@ -460,7 +450,7 @@ static int dbmdx_pcm_open(struct snd_pcm_substream *substream)
 	if (!prtd->dbmdx_pcm_workq) {
 		pr_err("%s: Could not create pcm workqueue\n", __func__);
 		ret = -EIO;
-		goto out_free_timer;
+		goto out_free_prtd;
 	}
 
 	runtime->private_data = prtd;
@@ -473,12 +463,10 @@ static int dbmdx_pcm_open(struct snd_pcm_substream *substream)
 		pr_debug("%s Error setting pcm constraint int\n", __func__);
 
 	return 0;
-out_free_timer:
-	kfree(timer);
 out_free_prtd:
 	kfree(prtd);
 out_unlock:
-	dbmdx_codec_unlock(component);
+	dbmdx_component_unlock(component);
 out:
 	return ret;
 }
@@ -548,7 +536,6 @@ static int dbmdx_pcm_close(struct snd_pcm_substream *substream)
 	struct snd_dbmdx_runtime_data *prtd = runtime->private_data;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_component *component = rtd->codec_dai->component;
-	struct timer_list *timer = prtd->timer;
 
 	pr_debug("%s\n", __func__);
 
@@ -561,12 +548,10 @@ static int dbmdx_pcm_close(struct snd_pcm_substream *substream)
 	flush_workqueue(prtd->dbmdx_pcm_workq);
 	usleep_range(10000, 11000);
 	destroy_workqueue(prtd->dbmdx_pcm_workq);
-	kfree(timer);
 	kfree(prtd);
-	timer = NULL;
 	prtd = NULL;
 
-	dbmdx_codec_unlock(component);
+	dbmdx_component_unlock(component);
 
 	return 0;
 }
@@ -619,7 +604,7 @@ static int dbmdx_pcm_preallocate_dma_buffer(struct snd_pcm *pcm, int stream)
 	return 0;
 }
 
-static int dbmdx_pcm_probe(struct snd_soc_component *pt)
+static int dbmdx_pcm_probe(struct snd_soc_component *c)
 {
 	struct snd_dbmdx *dbmdx;
 
@@ -629,25 +614,21 @@ static int dbmdx_pcm_probe(struct snd_soc_component *pt)
 	dbmdx = kzalloc(sizeof(*dbmdx), GFP_KERNEL);
 	if (!dbmdx)
 		return -ENOMEM;
-#if USE_ALSA_API_3_10_XX
-	dbmdx->card = pt->card;
-#else
-	dbmdx->card = pt->card;
-#endif
+	dbmdx->card = c->card;
 	dbmdx->pcm_hw = dbmdx_pcm_hardware;
-	snd_soc_component_set_drvdata(pt, dbmdx);
+	snd_soc_component_set_drvdata(c, dbmdx);
 
 	return 0;
 }
 
-static void dbmdx_pcm_remove(struct snd_soc_component *pt)
+static void dbmdx_pcm_remove(struct snd_soc_component *c)
 {
 	struct snd_dbmdx *dbmdx;
 
 	pr_debug("%s\n", __func__);
 
 
-	dbmdx = snd_soc_component_get_drvdata(pt);
+	dbmdx = snd_soc_component_get_drvdata(c);
 	kfree(dbmdx);
 }
 
@@ -702,7 +683,7 @@ static void dbmdx_pcm_free(struct snd_pcm *pcm)
 	}
 }
 
-static struct snd_soc_component_driver dbmdx_soc_platform = {
+static const struct snd_soc_component_driver dbmdx_soc_component_drv = {
 	.probe		= &dbmdx_pcm_probe,
 	.remove		= &dbmdx_pcm_remove,
 	.ops		= &dbmdx_pcm_ops,
@@ -716,7 +697,8 @@ static int dbmdx_pcm_platform_probe(struct platform_device *pdev)
 
 	pr_debug("%s\n", __func__);
 
-	err = snd_soc_register_component(&pdev->dev, &dbmdx_soc_platform, NULL, 0);
+	err = snd_soc_register_component(&pdev->dev, &dbmdx_soc_component_drv,
+		NULL, 0);
 	if (err)
 		dev_err(&pdev->dev, "%s: snd_soc_register_platform() failed",
 			__func__);
@@ -749,7 +731,7 @@ static struct platform_driver dbmdx_pcm_driver = {
 	.remove = dbmdx_pcm_platform_remove,
 };
 
-#ifdef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && !IS_MODULE(CONFIG_SND_SOC_DBMDX))
 static int __init snd_dbmdx_pcm_init(void)
 {
 	return platform_driver_register(&dbmdx_pcm_driver);

@@ -938,7 +938,7 @@ irqreturn_t synaptics_ts_irq_thread(int irq, void *ptr)
 		else if (event_id == REPORT_SEC_SPONGE_GESTURE)
 			synaptics_ts_gesture_event(ts, event_buff);
 		else if (event_id == STATUS_OK)
-			input_info(true, &ts->client->dev, "%s: response event event_id(%02X)", __func__, event_id);
+			input_info(true, &ts->client->dev, "%s: response event event_id(%02X)\n", __func__, event_id);
 		else
 			input_info(true, &ts->client->dev,
 					"%s: unknown event event_id(%02X) %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",

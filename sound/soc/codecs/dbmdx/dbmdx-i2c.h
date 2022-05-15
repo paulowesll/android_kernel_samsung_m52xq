@@ -11,7 +11,7 @@
 #ifndef _DBMDX_I2C_COMMON_H
 #define _DBMDX_I2C_COMMON_H
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 #include <linux/pm_wakeup.h>
 #endif
 
@@ -33,7 +33,7 @@ struct dbmdx_i2c_private {
 	struct dbmdx_i2c_data		*pdata;
 	struct i2c_client		*client;
 	struct chip_interface		chip;
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	struct wakeup_source		*ps_nosuspend_wl;
 #endif
 	u32				interface_enabled;

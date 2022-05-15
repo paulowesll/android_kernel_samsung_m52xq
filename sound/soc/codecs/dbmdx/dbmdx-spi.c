@@ -17,7 +17,7 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/spi/spi.h>
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #endif
@@ -734,8 +734,8 @@ static void spi_transport_enable(struct dbmdx_private *p, bool enable)
 
 	if (enable) {
 
-#ifdef CONFIG_PM_WAKELOCKS
-#ifdef DBMDX_USE_EXPIRABLE_WAKELOCK
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
+#if IS_ENABLED(DBMDX_USE_EXPIRABLE_WAKELOCK)
 		if (spi_p->ps_nosuspend_wl)
 			__pm_wakeup_event(spi_p->ps_nosuspend_wl,
                                         DBMDX_WAKELOCK_TIMEOUT_MS);
@@ -760,7 +760,7 @@ static void spi_transport_enable(struct dbmdx_private *p, bool enable)
 		p->wakeup_set(p);
 		msleep(DBMDX_MSLEEP_SPI_WAKEUP);
 	} else {
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 		if (spi_p->ps_nosuspend_wl)
 			__pm_relax(spi_p->ps_nosuspend_wl);
 #endif
@@ -1016,7 +1016,7 @@ static int spi_set_write_chunk_size(struct dbmdx_private *p, u32 size)
 
 int spi_common_probe(struct spi_device *client)
 {
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	struct  device_node *np;
 #endif
 	int ret;
@@ -1033,7 +1033,7 @@ int spi_common_probe(struct spi_device *client)
 	p->dev = &client->dev;
 
 	p->chip.pdata = p;
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	np = p->dev->of_node;
 	if (!np) {
 		dev_err(p->dev, "%s: no devicetree entry\n", __func__);
@@ -1055,7 +1055,7 @@ int spi_common_probe(struct spi_device *client)
 	}
 #endif
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "spi-max-frequency",
 		&(pdata->spi_speed));
 	if (ret && ret != -EINVAL)
@@ -1063,7 +1063,7 @@ int spi_common_probe(struct spi_device *client)
 #endif
 	dev_dbg(p->dev, "%s: spi speed is %u\n", __func__, pdata->spi_speed);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "read-chunk-size",
 		&pdata->read_chunk_size);
 	if (ret != 0) {
@@ -1087,7 +1087,7 @@ int spi_common_probe(struct spi_device *client)
 	dev_info(p->dev, "%s: Setting spi read chunk to %u bytes\n",
 			__func__, pdata->read_chunk_size);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "write-chunk-size",
 		&pdata->write_chunk_size);
 	if (ret != 0) {
@@ -1111,7 +1111,7 @@ int spi_common_probe(struct spi_device *client)
 	dev_info(p->dev, "%s: Setting spi write chunk to %u bytes\n",
 			__func__, pdata->write_chunk_size);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "dma_min_buffer_size",
 		&pdata->dma_min_buffer_size);
 	if (ret != 0) {
@@ -1142,7 +1142,7 @@ int spi_common_probe(struct spi_device *client)
 	if (!pdata->recv)
 		goto out_err_mem_free1;
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	p->ps_nosuspend_wl =
 			wakeup_source_create("dbmdx_nosuspend_wakelock_spi");
 
@@ -1189,7 +1189,7 @@ int spi_common_probe(struct spi_device *client)
 	goto out;
 out_err_mem_free1:
 	kfree(pdata->send);
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 out_err_kfree:
 #endif
 out_err_mem_free:
@@ -1203,7 +1203,7 @@ int spi_common_remove(struct spi_device *client)
 	struct chip_interface *ci = spi_get_drvdata(client);
 	struct dbmdx_spi_private *p = (struct dbmdx_spi_private *)ci->pdata;
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	if (p->ps_nosuspend_wl)	{
 		wakeup_source_remove(p->ps_nosuspend_wl);
 		wakeup_source_destroy(p->ps_nosuspend_wl);

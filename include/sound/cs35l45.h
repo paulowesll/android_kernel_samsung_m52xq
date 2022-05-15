@@ -116,7 +116,7 @@ struct cs35l45_irq_monitor {
 	struct cs35l45_irq_bit_monitor *bits;
 };
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 struct pwr_params_config {
 	bool is_present;
 	bool global_en;
@@ -143,7 +143,7 @@ struct cs35l45_platform_data {
 	unsigned int ngate_ch2_thr;
 	bool use_tdm_slots;
 	bool pll_auto_en;
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 	struct pwr_params_config pwr_params_cfg;
 	const char *mfd_suffix;
 	unsigned int bd_max_temp;

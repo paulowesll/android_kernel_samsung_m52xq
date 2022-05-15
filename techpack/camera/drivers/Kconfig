@@ -131,6 +131,12 @@ config GC5035_MACRO_OTP_DD_AUTOLOAD
 	help
 	Enables support for Macro Camera Sensor GC5035 OTP DD Autoload.
 
+config SAMSUNG_HW_SOFTLANDING
+	tristate "Soft Landing support"
+	default n
+	help
+	Enables support for Samsung HW softlanding
+
 config CAMERA_MCLK_DELAY
 	tristate "Camera MCLK delay"
 	default n

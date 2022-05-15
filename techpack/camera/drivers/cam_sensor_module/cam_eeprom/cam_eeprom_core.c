@@ -17,7 +17,7 @@
 
 #include "cam_notifier.h"
 
-#if defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT)
+#if defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT) || defined(CONFIG_SEC_XCOVERPRO2_PROJECT)
 #define REAR3_DUAL_CAL_FW_NAME "multical.bin"
 #endif
 
@@ -1150,7 +1150,7 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 
 	ModuleInfo_t 	mInfo;
 	ModuleInfo_t 	mInfoSub;
-#if defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT)
+#if defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT) || defined(CONFIG_SEC_XCOVERPRO2_PROJECT)
 	const struct firmware *fw = NULL;
 	struct device         *dev = e_ctrl->soc_info.dev;
 	uint32_t               fw_size;
@@ -1222,7 +1222,7 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 #endif
 			break;
 
-#if defined(CONFIG_SEC_P3Q_PROJECT) || defined(CONFIG_SEC_O3Q_PROJECT) || defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined (CONFIG_SEC_M52XQ_PROJECT)
+#if defined(CONFIG_SEC_P3Q_PROJECT) || defined(CONFIG_SEC_O3Q_PROJECT) || defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined (CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT)
 		case SEC_TELE_SENSOR:
 #if defined (CONFIG_SEC_M52XQ_PROJECT)
 		case SEC_MACRO_SENSOR:
@@ -1510,7 +1510,7 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 #endif //!defined(CONFIG_SAMSUNG_FRONT_TOP_EEPROM)
 	}
 #endif //#if defined(CONFIG_SAMSUNG_FRONT_TOP)
-#if defined(CONFIG_SEC_P3Q_PROJECT) || defined(CONFIG_SEC_O3Q_PROJECT) || defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT)
+#if defined(CONFIG_SEC_P3Q_PROJECT) || defined(CONFIG_SEC_O3Q_PROJECT) || defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT)
 	else if ((e_ctrl->soc_info.index == SEC_WIDE_SENSOR)
 		|| (e_ctrl->soc_info.index == SEC_ULTRA_WIDE_SENSOR)
 		|| (e_ctrl->soc_info.index == SEC_TELE_SENSOR)
@@ -1586,7 +1586,7 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 						SIZE_S_DUAL_CAL, e_ctrl->cal_data.mapdata, "rear3 tele", &mInfo);
 				}
 			}
-#if defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT)
+#if defined(CONFIG_SEC_R9Q_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT) || defined(CONFIG_SEC_XCOVERPRO2_PROJECT)
 			/* Load FW */
 			rc = request_firmware(&fw, REAR3_DUAL_CAL_FW_NAME, dev);
 			if (rc) {
@@ -1675,13 +1675,13 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 #if defined(CONFIG_SAMSUNG_REAR_DUAL)
 		/* AF Cal. data read */
 		{
-                        AfIdx_t rear_idx[] = {
-                                {AF_CAL_NEAR_IDX, AF_CAL_NEAR_OFFSET_FROM_AF},
-                                {AF_CAL_FAR_IDX, AF_CAL_FAR_OFFSET_FROM_AF},
-                        };
+			AfIdx_t rear_idx[] = {
+				{AF_CAL_NEAR_IDX, AF_CAL_NEAR_OFFSET_FROM_AF},
+				{AF_CAL_FAR_IDX, AF_CAL_FAR_OFFSET_FROM_AF},
+			};
 
-                        cam_eeprom_module_info_set_afcal(ADDR_M_AF, rear_idx, sizeof(rear_idx)/sizeof(rear_idx[0]),
-                                e_ctrl->cal_data.mapdata, rear_af_cal_str, sizeof(rear_af_cal_str));
+			cam_eeprom_module_info_set_afcal(ADDR_M_AF, rear_idx, sizeof(rear_idx)/sizeof(rear_idx[0]),
+				e_ctrl->cal_data.mapdata, rear_af_cal_str, sizeof(rear_af_cal_str));
 		}
 
 		/* rear2 sw dual cal */
@@ -1694,13 +1694,13 @@ static int cam_eeprom_update_module_info(struct cam_eeprom_ctrl_t *e_ctrl)
 #if defined(CONFIG_SEC_GTS7FEWIFI_PROJECT)
 		/* AF Cal. data read */
 		{
-                        AfIdx_t rear_idx[] = {
-                                {AF_CAL_NEAR_IDX, AF_CAL_NEAR_OFFSET_FROM_AF},
-                                {AF_CAL_FAR_IDX, AF_CAL_FAR_OFFSET_FROM_AF},
-                        };
+			AfIdx_t rear_idx[] = {
+				{AF_CAL_NEAR_IDX, AF_CAL_NEAR_OFFSET_FROM_AF},
+				{AF_CAL_FAR_IDX, AF_CAL_FAR_OFFSET_FROM_AF},
+			};
 
-                        cam_eeprom_module_info_set_afcal(ADDR_M_AF, rear_idx, sizeof(rear_idx)/sizeof(rear_idx[0]),
-                                e_ctrl->cal_data.mapdata, rear_af_cal_str, sizeof(rear_af_cal_str));
+			cam_eeprom_module_info_set_afcal(ADDR_M_AF, rear_idx, sizeof(rear_idx)/sizeof(rear_idx[0]),
+				e_ctrl->cal_data.mapdata, rear_af_cal_str, sizeof(rear_af_cal_str));
 		}
 #endif
 

@@ -432,7 +432,7 @@ static int bolero_copy_dais_from_macro(struct bolero_priv *priv)
 		return -ENOMEM;
 
 	dai_ptr = priv->bolero_dais;
-	pr_err("%s called\n", __func__);
+
 	for (macro_idx = START_MACRO; macro_idx < MAX_MACRO; macro_idx++) {
 		if (priv->macro_params[macro_idx].dai_ptr) {
 			memcpy(dai_ptr,
@@ -517,7 +517,7 @@ static u8 bolero_dmic_clk_div_get(struct snd_soc_component *component,
 
 	if (priv->macro_params[macro].clk_div_get) {
 		ret = priv->macro_params[macro].clk_div_get(component);
-		if (ret > 0)
+		if (ret >= 0)
 			return ret;
 	}
 
@@ -682,7 +682,7 @@ int bolero_register_macro(struct device *dev, u16 macro_id,
 		dev_err(dev, "%s: priv is null or invalid macro\n", __func__);
 		return -EINVAL;
 	}
-	dev_err(dev, "%s: inside func %d\n", __func__, macro_id);
+
 	priv->macro_params[macro_id].clk_id_req = ops->clk_id_req;
 	priv->macro_params[macro_id].default_clk_id = ops->default_clk_id;
 	priv->macro_params[macro_id].init = ops->init;
@@ -724,7 +724,6 @@ int bolero_register_macro(struct device *dev, u16 macro_id,
 			mutex_unlock(&priv->macro_lock);
 			return ret;
 		}
-		dev_info(dev, "%s: copy dais called:%d\n", __func__, macro_id);
 		if (priv->macros_supported[TX_MACRO] == false) {
 			bolero_mclk_mux_tbl[WSA_MACRO][MCLK_MUX0] = WSA_MACRO;
 			priv->current_mclk_mux_macro[WSA_MACRO] = WSA_MACRO;
@@ -738,7 +737,6 @@ int bolero_register_macro(struct device *dev, u16 macro_id,
 			mutex_unlock(&priv->macro_lock);
 			return ret;
 		}
-		dev_info(dev, "%s: reg component called:%d\n", __func__, macro_id);
 	}
 	mutex_unlock(&priv->macro_lock);
 	return 0;

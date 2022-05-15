@@ -17,8 +17,8 @@
 #include <linux/adsp/ssc_ssr_reason.h>
 #include <linux/string.h>
 #ifdef CONFIG_VBUS_NOTIFIER
-#include <linux/vbus_notifier.h> 
-#endif 
+#include <linux/vbus_notifier.h>
+#endif
 #ifdef CONFIG_SUPPORT_SSC_SPU
 #include <linux/adsp/ssc_spu.h>
 #endif
@@ -79,7 +79,7 @@ struct ssc_charge_data {
 struct ssc_charge_data *pdata_ssc_charge;
 #endif
 
-struct ois_sensor_interface{
+struct ois_sensor_interface {
 	void *core;
 	void (*ois_func)(void *);
 };
@@ -114,6 +114,7 @@ EXPORT_SYMBOL(ois_reset_unregister);
 void ssc_charge_work_func(struct work_struct *work)
 {
 	int32_t msg_buf[2];
+
 	msg_buf[0] = OPTION_TYPE_SSC_CHARGING_STATE;
 	msg_buf[1] = (int32_t)pdata_ssc_charge->is_charging;
 	pr_info("[FACTORY] %s: msg_buf = %d\n", __func__, msg_buf[1]);
@@ -133,11 +134,11 @@ static int ssc_core_vbus_notifier(struct notifier_block *nb,
 	switch (vbus_type) {
 	case STATUS_VBUS_HIGH:
 	case STATUS_VBUS_LOW:
-		pdata_ssc_charge->is_charging = 
+		pdata_ssc_charge->is_charging =
 			(vbus_type == STATUS_VBUS_HIGH) ? true : false;
 		pr_info("vbus high:%d \n", (int)pdata_ssc_charge->is_charging);
 		queue_work(pdata_ssc_charge->ssc_charge_wq,
-			&pdata_ssc_charge->work_ssc_charge);                       
+			&pdata_ssc_charge->work_ssc_charge);
 		break;
 	default:
 		pr_info("vbus skip attach = %d\n", vbus_type);
@@ -342,7 +343,7 @@ static ssize_t ssc_hw_rev_show(struct device *dev,
 {
 	uint32_t hw_rev = sec_hw_rev();
 
-	if(hw_rev > SENSOR_HW_REVISION_MAX)
+	if (hw_rev > SENSOR_HW_REVISION_MAX)
 		hw_rev = SENSOR_HW_REVISION_MAX;
 
 	pr_info("[FACTORY] %s: ssc_rev:%d\n", __func__, hw_rev);
@@ -464,7 +465,7 @@ static ssize_t support_algo_store(struct device *dev,
 		return -EINVAL;
 	}
 
-        data->support_algo = (uint32_t)support_algo;
+	data->support_algo = (uint32_t)support_algo;
 	pr_info("[FACTORY] %s support_algo = %u\n", __func__, support_algo);
 
 	return size;
@@ -476,7 +477,7 @@ static ssize_t fac_fstate_store(struct device *dev,
 {
 	struct adsp_data *data = dev_get_drvdata(dev);
 	int32_t fstate[2] = {VOPTIC_OP_CMD_FAC_FLIP, 0};
-	
+
 	if (sysfs_streq(buf, "0"))
 		data->fac_fstate = fstate[1] = curr_fstate;
 	else if (sysfs_streq(buf, "1"))
@@ -651,7 +652,7 @@ static void print_sensor_dump(struct adsp_data *data, int sensor)
 	}
 }
 
-void print_ssr_history()
+void print_ssr_history(void)
 {
 	int i;
 
@@ -710,7 +711,7 @@ void sensor_dump_work_func(struct work_struct *work)
 		}
 #ifdef CONFIG_SEC_A42XUQ_PROJECT
 		if (sensor_type[i] == MSG_PRESSURE)
-	                continue;
+			continue;
 #endif
 		pr_info("[FACTORY] %s: %d\n", __func__, sensor_type[i]);
 		cnt = 0;
@@ -731,7 +732,7 @@ void sensor_dump_work_func(struct work_struct *work)
 	}
 
 #ifdef CONFIG_SUPPORT_SSC_SPU
-	pr_info("SLPI firmware ver, idx:%d, CL:%d, %d-%d-%d, %d:%d:%d.%d\n", 
+	pr_info("SLPI firmware ver, idx:%d, CL:%d, %d-%d-%d, %d:%d:%d.%d\n",
 		fw_idx, ver_buf[idx][SSC_CL], ver_buf[idx][SSC_YEAR],
 		ver_buf[idx][SSC_MONTH], ver_buf[idx][SSC_DATE],
 		ver_buf[idx][SSC_HOUR], ver_buf[idx][SSC_MIN],
@@ -742,7 +743,7 @@ void sensor_dump_work_func(struct work_struct *work)
 	adsp_unicast(NULL, 0, MSG_REG_SNS, 0, MSG_TYPE_OPTION_DEFINE);
 
 #ifdef CONFIG_SUPPORT_SSC_SPU
-	pr_info("SLPI firmware ver, idx:%d, CL:%d, %d-%d-%d, %d:%d:%d.%d\n", 
+	pr_info("SLPI firmware ver, idx:%d, CL:%d, %d-%d-%d, %d:%d:%d.%d\n",
 		fw_idx, ver_buf[idx][SSC_CL], ver_buf[idx][SSC_YEAR],
 		ver_buf[idx][SSC_MONTH], ver_buf[idx][SSC_DATE],
 		ver_buf[idx][SSC_HOUR], ver_buf[idx][SSC_MIN],
@@ -769,7 +770,7 @@ static ssize_t ssc_firmware_info_show(struct device *dev,
 {
 	int32_t idx = (fw_idx == SSC_ORI_AF_SPU_FAIL) ? SSC_ORI:fw_idx;
 
-	pr_info("idx:%d, CL:%d, %d-%d-%d, %d:%d:%d.%d\n", 
+	pr_info("idx:%d, CL:%d, %d-%d-%d, %d:%d:%d.%d\n",
 		fw_idx, ver_buf[idx][SSC_CL], ver_buf[idx][SSC_YEAR],
 		ver_buf[idx][SSC_MONTH], ver_buf[idx][SSC_DATE],
 		ver_buf[idx][SSC_HOUR], ver_buf[idx][SSC_MIN],
@@ -782,7 +783,18 @@ static ssize_t ssc_firmware_info_show(struct device *dev,
 		ver_buf[idx][SSC_SEC], ver_buf[idx][SSC_MSEC]);
 }
 #endif
+static ssize_t ar_mode_store(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t size)
+{
+	int32_t msg_buf[2] = {OPTION_TYPE_SSC_AUTO_ROTATION_MODE, 0};
 
+	msg_buf[1] = buf[0] - 48;
+	pr_info("[FACTORY]%s: ar_mode:%d\n", __func__, msg_buf[1]);
+	adsp_unicast(msg_buf, sizeof(msg_buf),
+		MSG_SSC_CORE, 0, MSG_TYPE_OPTION_DEFINE);
+
+	return size;
+}
 static DEVICE_ATTR(dumpstate, 0440, dumpstate_show, NULL);
 static DEVICE_ATTR(operation_mode, 0664,
 	operation_mode_show, operation_mode_store);
@@ -806,6 +818,8 @@ static DEVICE_ATTR(ssc_firmware_info, 0440, ssc_firmware_info_show, NULL);
 	defined(CONFIG_SUPPORT_BRIGHT_SYSFS_COMPENSATION_LUX)
 static DEVICE_ATTR(lcd_onoff, 0220, NULL, lcd_onoff_store);
 #endif
+static DEVICE_ATTR(ar_mode, 0220, NULL, ar_mode_store);
+
 static struct device_attribute *core_attrs[] = {
 	&dev_attr_dumpstate,
 	&dev_attr_operation_mode,
@@ -816,7 +830,7 @@ static struct device_attribute *core_attrs[] = {
 	&dev_attr_ssr_msg,
 	&dev_attr_ssr_reset,
 	&dev_attr_support_algo,
-#ifdef CONFIG_SUPPORT_VIRTUAL_OPTIC	
+#ifdef CONFIG_SUPPORT_VIRTUAL_OPTIC
 	&dev_attr_fac_fstate,
 #endif
 	&dev_attr_support_dual_sensor,
@@ -832,6 +846,7 @@ static struct device_attribute *core_attrs[] = {
 	defined(CONFIG_SUPPORT_BRIGHT_SYSFS_COMPENSATION_LUX)
 	&dev_attr_lcd_onoff,
 #endif
+	&dev_attr_ar_mode,
 	NULL,
 };
 
@@ -839,6 +854,7 @@ static int __init core_factory_init(void)
 {
 #if defined(CONFIG_VBUS_NOTIFIER)
 	struct adsp_data *data = adsp_ssc_core_register(MSG_SSC_CORE, core_attrs);
+
 	pr_info("[FACTORY] %s\n", __func__);
 	vbus_notifier_register(&data->vbus_nb,
 		ssc_core_vbus_notifier, VBUS_NOTIFY_DEV_CHARGER);
@@ -872,7 +888,7 @@ static int __init core_factory_init(void)
 	}
 	INIT_WORK(&pdata_ssc_charge->work_ssc_charge, ssc_charge_work_func);
 	pdata_ssc_charge->is_charging = false;
-#endif	
+#endif
 	pr_info("[FACTORY] %s\n", __func__);
 
 	return 0;
@@ -881,7 +897,7 @@ static int __init core_factory_init(void)
 static void __exit core_factory_exit(void)
 {
 #if defined(CONFIG_VBUS_NOTIFIER)
-	struct adsp_data *data = adsp_ssc_core_unregister(MSG_SSC_CORE);;
+	struct adsp_data *data = adsp_ssc_core_unregister(MSG_SSC_CORE);
 	vbus_notifier_unregister(&data->vbus_nb);
 #else
 	adsp_factory_unregister(MSG_SSC_CORE);

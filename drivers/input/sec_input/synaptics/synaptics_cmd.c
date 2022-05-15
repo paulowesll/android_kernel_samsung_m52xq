@@ -633,7 +633,10 @@ static ssize_t read_support_feature(struct device *dev,
 	if (ts->plat_data->support_wireless_tx)
 		feature |= INPUT_FEATURE_SUPPORT_WIRELESS_TX;
 
-	input_info(true, &ts->client->dev, "%s: %d%s%s%s%s%s%s%s\n",
+	if (ts->plat_data->enable_sysinput_enabled)
+		feature |= INPUT_FEATURE_ENABLE_SYSINPUT_ENABLED;
+
+	input_info(true, &ts->client->dev, "%s: %d%s%s%s%s%s%s%s%s\n",
 			__func__, feature,
 			feature & INPUT_FEATURE_ENABLE_SETTINGS_AOT ? " aot" : "",
 			feature & INPUT_FEATURE_ENABLE_PRESSURE ? " pressure" : "",
@@ -641,7 +644,8 @@ static ssize_t read_support_feature(struct device *dev,
 			feature & INPUT_FEATURE_ENABLE_VRR ? " vrr" : "",
 			feature & INPUT_FEATURE_SUPPORT_OPEN_SHORT_TEST ? " openshort" : "",
 			feature & INPUT_FEATURE_SUPPORT_MIS_CALIBRATION_TEST ? " miscal" : "",
-			feature & INPUT_FEATURE_SUPPORT_WIRELESS_TX ? " wirelesstx" : "");
+			feature & INPUT_FEATURE_SUPPORT_WIRELESS_TX ? " wirelesstx" : "",
+			feature & INPUT_FEATURE_ENABLE_SYSINPUT_ENABLED ? " SE" : "");
 
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", feature);
 }
@@ -908,6 +912,68 @@ static ssize_t debug_info_show(struct device *dev,
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%s", buff);
 }
 
+static ssize_t enabled_show(struct device *dev, struct device_attribute *attr,
+					char *buf)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct synaptics_ts_data *ts = container_of(sec, struct synaptics_ts_data, sec);
+
+	if (!ts->plat_data->enable_sysinput_enabled)
+		return -EINVAL;
+
+	input_info(true, &ts->client->dev, "%s: enabled %d\n", __func__, ts->plat_data->enabled);
+
+	return snprintf(buf, SEC_CMD_BUF_SIZE, "%d", ts->plat_data->enabled);
+}
+
+static ssize_t enabled_store(struct device *dev, struct device_attribute *attr,
+					const char *buf, size_t count)
+{
+	struct sec_cmd_data *sec = dev_get_drvdata(dev);
+	struct synaptics_ts_data *ts = container_of(sec, struct synaptics_ts_data, sec);
+	struct input_dev *input_dev = ts->plat_data->input_dev;
+	int buff[2];
+	int ret;
+
+	if (!ts->plat_data->enable_sysinput_enabled)
+		return -EINVAL;
+
+	ret = sscanf(buf, "%d,%d", &buff[0], &buff[1]);
+	if (ret != 2) {
+		input_err(true, &ts->client->dev,
+				"%s: failed read params [%d]\n", __func__, ret);
+		return -EINVAL;
+	}
+
+	if (buff[0] == LCD_ON && buff[1] == LCD_LATE_EVENT) {
+		if (ts->plat_data->enabled) {
+			input_err(true, &ts->client->dev, "%s: device already enabled\n", __func__);
+			goto out;
+		}
+
+		ret = sec_input_enable_device(input_dev);
+	} else if (buff[0] == LCD_OFF && buff[1] == LCD_EARLY_EVENT) {
+		if (!ts->plat_data->enabled) {
+			input_err(true, &ts->client->dev, "%s: device already disabled\n", __func__);
+			goto out;
+		}
+
+		ret = sec_input_disable_device(input_dev);
+	} else if (buff[0] == FORCE_ON) {
+		ret = sec_input_enable_device(input_dev);
+		input_info(true, &ts->client->dev, "%s: FORCE_ON(%d)\n", __func__, ret);
+	} else if (buff[0] == FORCE_OFF) {
+		ret = sec_input_disable_device(input_dev);
+		input_info(true, &ts->client->dev, "%s: FORCE_OFF(%d)\n", __func__, ret);
+	}
+
+	if (ret)
+		return ret;
+
+out:
+	return count;
+}
+
 static DEVICE_ATTR(scrub_pos, 0444, scrub_position_show, NULL);
 static DEVICE_ATTR(hw_param, 0664, hardware_param_show, hardware_param_store); /* for bigdata */
 static DEVICE_ATTR(get_lp_dump, 0444, get_lp_dump, NULL);
@@ -918,6 +984,7 @@ static DEVICE_ATTR(fod_pos, 0444, synaptics_ts_fod_position_show, NULL);
 static DEVICE_ATTR(fod_info, 0444, synaptics_ts_fod_info_show, NULL);
 static DEVICE_ATTR(aod_active_area, 0444, synaptics_aod_active_area, NULL);
 static DEVICE_ATTR(debug_info, 0444, debug_info_show, NULL);
+static DEVICE_ATTR(enabled, 0664, enabled_show, enabled_store);
  
 static struct attribute *cmd_attributes[] = {
 	&dev_attr_scrub_pos.attr,
@@ -930,6 +997,7 @@ static struct attribute *cmd_attributes[] = {
 	&dev_attr_fod_info.attr,
 	&dev_attr_aod_active_area.attr,
 	&dev_attr_debug_info.attr,
+	&dev_attr_enabled.attr,
 	NULL,
 };
 

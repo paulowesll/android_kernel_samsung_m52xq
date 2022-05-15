@@ -23,9 +23,9 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/clk.h>
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 #include <linux/of.h>
-#ifdef CONFIG_OF_I2C
+#if IS_ENABLED(CONFIG_OF_I2C)
 #include <linux/of_i2c.h>
 #endif /* CONFIG_OF_I2C */
 #include <linux/of_gpio.h>
@@ -45,7 +45,7 @@
 #include <linux/kthread.h>
 #include <linux/version.h>
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 #include <linux/pm_wakeup.h>
 #endif
 
@@ -61,7 +61,7 @@
 #define MAX_KFIFO_BUFFER_SIZE_STEREO		(MAX_KFIFO_BUFFER_SIZE_MONO * 2)
 #define MAX_KFIFO_BUFFER_SIZE_4CH		(MAX_KFIFO_BUFFER_SIZE_MONO * 4)
 
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 #define MAX_SUPPORTED_CHANNELS			4
 #define MAX_KFIFO_BUFFER_SIZE			MAX_KFIFO_BUFFER_SIZE_4CH
 #define VA_MIC_CONFIG_SIZE			5
@@ -75,7 +75,7 @@
 #define MAX_RETRIES_TO_WRITE_TOBUF		200
 #define MAX_AMODEL_SIZE				(148 * 1024)
 
-#define DRIVER_VERSION				"5.0.0"
+#define DRIVER_VERSION				"5.0.1"
 
 #define DBMDX_AUDIO_MODE_PCM			0
 #define DBMDX_AUDIO_MODE_MU_LAW			1
@@ -102,8 +102,8 @@
 #define RETRY_COUNT				5
 #endif
 
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE) && \
-	defined(DBMDX_USE_ASLA_CONTROLS_WITH_DBMDX_CARD_ONLY)
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE) && \
+	IS_ENABLED(DBMDX_USE_ASLA_CONTROLS_WITH_DBMDX_CARD_ONLY))
 #define SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY 1
 #endif
 
@@ -121,7 +121,7 @@ enum dbmdx_detection_mode {
 	DETECTION_MODE_VOICE_COMMAND,
 	DETECTION_MODE_DUAL,
 	DETECTION_MODE_PHRASE_DONT_LOAD,
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	DETECTION_MODE_OKG,
 	DETECTION_MODE_MAX = DETECTION_MODE_OKG
 #else
@@ -151,7 +151,7 @@ static const char *dbmdx_power_mode_names[DBMDX_PM_STATES] = {
 static const char *dbmdx_state_names[DBMDX_NR_OF_STATES] = {
 	"IDLE",
 	"DETECTION",
-#ifdef DBMDX_FW_BELOW_300
+#if IS_ENABLED(DBMDX_FW_BELOW_300)
 	"RESERVED_2",
 	"BUFFERING",
 #else
@@ -170,7 +170,7 @@ static const char *dbmdx_of_clk_names[DBMDX_NR_OF_CLKS] = {
 	"dbmdx_master_clk",
 };
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 static const char *dbmdx_of_clk_rate_names[DBMDX_NR_OF_CLKS] = {
 	"constant-clk-rate",
 	"master-clk-rate",
@@ -184,7 +184,7 @@ static const char *dbmdx_fw_names[DBMDX_FW_MAX] = {
 	[DBMDX_FW_POWER_OFF_VA] = "POWER_OFF",
 };
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 enum dbmdx_va_ns_config {
 	VA_NS_CONFIG_DMIC_DETECTION = 0,
 	VA_NS_CONFIG_AMIC = 1,
@@ -203,7 +203,7 @@ void (*g_event_callback)(int) = NULL;
 void (*g_set_i2c_freq_callback)(struct i2c_adapter*, enum i2c_freq_t) = NULL;
 
 /* Forward declarations */
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 static void cancel_keep_alive_timer(struct dbmdx_private *p);
 static int arm_keep_alive_timer(struct dbmdx_private *p);
 #endif
@@ -239,16 +239,16 @@ static int dbmdx_va_amodel_send(struct dbmdx_private *p,  const void *data,
 			   size_t size, int num_of_chunks, size_t *chunk_sizes,
 			   const void *checksum, size_t chksum_len,
 			   u16 load_amodel_mode_cmd);
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 static int dbmdx_set_okg_recognition_mode(struct dbmdx_private *p,
 					enum dbmdx_okg_recognition_mode mode);
 #endif
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 static int dbmdx_configure_ns(struct dbmdx_private *p, int mode, bool enable);
 #endif
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 static int dbmdx_get_fw_interfaces(struct dbmdx_private *p,
 				   const char *tag,
 				   int *iarray);
@@ -257,7 +257,7 @@ static int dbmdx_get_fw_interfaces(struct dbmdx_private *p,
 static int dbmdx_schedule_work(struct dbmdx_private *p,
 					struct work_struct *work)
 {
-#ifdef USE_DEDICATED_WORKQUEUE
+#if IS_ENABLED(USE_DEDICATED_WORKQUEUE)
 	return queue_work(p->dbmdx_workq, work);
 #else
 	return schedule_work(work);
@@ -634,7 +634,7 @@ static int dbmdx_add_audio_samples_to_kfifo(struct dbmdx_private *p,
 			cur_sample_buf[3] = buf[i+1];
 			kfifo_in(fifo, cur_sample_buf, 4);
 		}
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	} else if (audio_channel_op == AUDIO_CHANNEL_OP_DUPLICATE_1_TO_4) {
 		unsigned int i;
 		u8 cur_sample_buf[8];
@@ -675,7 +675,7 @@ static int dbmdx_add_audio_samples_to_kfifo(struct dbmdx_private *p,
 			cur_sample_buf[1] = buf[i+1];
 			kfifo_in(fifo, cur_sample_buf, 2);
 		}
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	} else if (audio_channel_op == AUDIO_CHANNEL_OP_TRUNCATE_4_TO_1) {
 		unsigned int i;
 		u8 cur_sample_buf[2];
@@ -705,7 +705,7 @@ static int dbmdx_add_audio_samples_to_kfifo(struct dbmdx_private *p,
 
 	return 0;
 }
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 
 static int dbmdx_suspend_pcm_streaming_work(struct dbmdx_private *p)
 {
@@ -822,7 +822,7 @@ static int dbmdx_set_backlog_len(struct dbmdx_private *p, u32 history)
 	unsigned short val;
 	u16 cur_backlog_size;
 	u16 backlog_size_to_set;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	bool okg_model_selected = false;
 	u16 cur_okg_backlog_size;
 
@@ -890,7 +890,7 @@ static int dbmdx_set_backlog_len(struct dbmdx_private *p, u32 history)
 
 	cur_backlog_size = (u16)(p->pdata->va_backlog_length);
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	cur_okg_backlog_size = (u16)(p->pdata->va_backlog_length_okg);
 	if (okg_model_selected)
 		p->pdata->va_backlog_length_okg = history;
@@ -914,7 +914,7 @@ static int dbmdx_set_backlog_len(struct dbmdx_private *p, u32 history)
 		dev_err(p->dev,
 			"%s: failed to set backlog size\n", __func__);
 		p->pdata->va_backlog_length = cur_backlog_size;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		p->pdata->va_backlog_length_okg = cur_okg_backlog_size;
 #endif
 		return ret;
@@ -932,7 +932,7 @@ static int dbmdx_amodel_loaded(struct dbmdx_private *p)
 {
 	int model_loaded = p->va_flags.a_model_downloaded_to_fw;
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	model_loaded = (model_loaded ||
 		p->va_flags.okg_a_model_downloaded_to_fw);
 #endif
@@ -1219,7 +1219,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 
 	p->va_flags.irq_inuse = 0;
 
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 	dev_dbg(p->dev, "%s: Cancelling Keep Alive timer\n", __func__);
 	p->va_flags.cancel_keep_alive_work = true;
 	cancel_keep_alive_timer(p);
@@ -1294,7 +1294,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 				goto out;
 			}
 		}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (p->okg_a_model_support) {
 			ret = dbmdx_set_okg_recognition_mode(p,
 				p->va_flags.okg_recognition_mode);
@@ -1329,7 +1329,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 				goto out;
 			}
 		}
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 		if (p->pdata->va_ns_supported) {
 			ret = dbmdx_configure_ns(p, mode, p->va_ns_enabled);
 			if (ret < 0) {
@@ -1353,7 +1353,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 				__func__);
 			goto out;
 		}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		ret = dbmdx_set_okg_recognition_mode(p,
 					OKG_RECOGNITION_MODE_DISABLED);
 		if (ret < 0) {
@@ -1373,7 +1373,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 			goto out;
 		}
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 		if (p->pdata->va_ns_supported) {
 			ret = dbmdx_configure_ns(p, mode, p->va_ns_enabled);
 			if (ret < 0) {
@@ -1419,7 +1419,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 	} else if (mode == DBMDX_BUFFERING) {
 		/* Stop PCM streaming work */
 		p->va_flags.pcm_worker_active = 0;
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 		if (p->pdata->va_ns_supported) {
 			ret = dbmdx_configure_ns(p, mode, p->va_ns_enabled);
 			if (ret < 0) {
@@ -1462,7 +1462,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 		unsigned short new_mode;
 		int retry = 10;
 
-#ifdef DBMDX_RECOVERY_TEST_ENABLE
+#if IS_ENABLED(DBMDX_RECOVERY_TEST_ENABLE)
 		if (p->va_flags.va_debug_val1 == 3) {
 
 			dev_err(p->dev,
@@ -1509,7 +1509,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 		usleep_range(DBMDX_USLEEP_SET_MODE,
 					DBMDX_USLEEP_SET_MODE + 1000);
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	if (p->pdata->va_ns_supported &&
 		!(p->asleep) && (new_power_mode != DBMDX_PM_ACTIVE)) {
 		ret = dbmdx_configure_ns(p, mode, p->va_ns_enabled);
@@ -1547,7 +1547,7 @@ static int dbmdx_set_mode(struct dbmdx_private *p, int mode)
 		p->va_flags.buffering = 1;
 		p->va_cur_backlog_length = 0;
 		dbmdx_schedule_work(p, &p->sv_work);
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 	} else if (new_effective_mode == DBMDX_DETECTION_AND_STREAMING ||
 			new_effective_mode == DBMDX_STREAMING) {
 		p->va_flags.pcm_worker_active = 1;
@@ -1605,7 +1605,7 @@ static int dbmdx_trigger_detection(struct dbmdx_private *p)
 	if (p->va_flags.mode != DBMDX_STREAMING &&
 		p->va_flags.mode != DBMDX_DETECTION_AND_STREAMING) {
 		p->chip->transport_enable(p, false);
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 		if (p->pdata->retrigger_interval_sec &&
 						p->keep_alive_timer_created) {
 			ret = arm_keep_alive_timer(p);
@@ -1820,7 +1820,7 @@ out:
 	p->unlock(p);
 }
 
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 
 static void cancel_keep_alive_timer(struct dbmdx_private *p)
 {
@@ -1917,7 +1917,7 @@ static void dbmdx_keep_alive_work(struct work_struct *work)
 		goto out_unlock;
 	}
 
-#ifdef DBMDX_RECOVERY_TEST_ENABLE
+#if IS_ENABLED(DBMDX_RECOVERY_TEST_ENABLE)
 	if (p->va_flags.va_debug_val1 == 2) {
 		dev_err(p->dev,	"%s: Emulating Dead Chip during keep alive\n",
 				__func__);
@@ -2015,7 +2015,7 @@ static enum alarmtimer_restart keep_alive_timer_func(struct alarm *alarm,
 		return  ALARMTIMER_NORESTART;
 	}
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	if (p->ps_nosuspend_wl)
 		__pm_wakeup_event(p->ps_nosuspend_wl,
 					DBMDX_WAKELOCK_IRQ_TIMEOUT_MS);
@@ -2069,7 +2069,7 @@ enum dbmdx_microphone_mode {
 	DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_LEFT,
 	DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_RIGHT,
 	DBMDX_MIC_MODE_ANALOG,
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	DBMDX_MIC_MODE_DIGITAL_4CH,
 #endif
 	DBMDX_MIC_MODE_DISABLE,
@@ -2079,7 +2079,7 @@ enum dbmdx_microphone_type {
 	DBMDX_MIC_TYPE_DIGITAL_LEFT = 0,
 	DBMDX_MIC_TYPE_DIGITAL_RIGHT,
 	DBMDX_MIC_TYPE_ANALOG,
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	DBMDX_MIC_TYPE_MIC3,
 	DBMDX_MIC_TYPE_MIC4,
 #endif
@@ -2091,7 +2091,7 @@ enum dbmdx_microphone_gain {
 	DBMDX_ANALOG_MIC_DIGITAL_GAIN,
 };
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 static int dbmdx_update_microphone_mode_ns_config_by_usecase(
 					struct dbmdx_private *p,
 					enum dbmdx_microphone_mode mode)
@@ -2275,7 +2275,7 @@ static int dbmdx_update_microphone_mode(struct dbmdx_private *p,
 	dev_dbg(p->dev, "%s: mode: %d\n", __func__, mode);
 
 	/* first disable both mics */
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	ret = dbmdx_send_cmd(p,
 		DBMDX_VA_MICROPHONE4_CONFIGURATION | DBMDX_MIC_DISABLE_VAL,
 				NULL);
@@ -2369,7 +2369,7 @@ static int dbmdx_update_microphone_mode(struct dbmdx_private *p,
 			DBMDX_VA_MICROPHONE1_CONFIGURATION |
 			p->pdata->va_mic_config[DBMDX_MIC_TYPE_ANALOG], NULL);
 		break;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	case DBMDX_MIC_MODE_DIGITAL_4CH:
 		ret = dbmdx_send_cmd(p,
 			DBMDX_VA_MICROPHONE1_CONFIGURATION |
@@ -2430,7 +2430,7 @@ static int dbmdx_update_microphone_mode(struct dbmdx_private *p,
 			p->pdata->detection_buffer_channels == 2) {
 			p->detection_achannel_op = AUDIO_CHANNEL_OP_COPY;
 			new_detection_kfifo_size = MAX_KFIFO_BUFFER_SIZE_STEREO;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 		} else if (p->pdata->detection_buffer_channels == 4) {
 			p->detection_achannel_op =
 			AUDIO_CHANNEL_OP_DUPLICATE_2_TO_4;
@@ -2444,7 +2444,7 @@ static int dbmdx_update_microphone_mode(struct dbmdx_private *p,
 
 		if (p->audio_pcm_channels == 2)
 			p->pcm_achannel_op = AUDIO_CHANNEL_OP_COPY;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 		else if (p->audio_pcm_channels == 4)
 			p->pcm_achannel_op = AUDIO_CHANNEL_OP_DUPLICATE_2_TO_4;
 #endif
@@ -2460,7 +2460,7 @@ static int dbmdx_update_microphone_mode(struct dbmdx_private *p,
 			p->pdata->detection_buffer_channels == 1) {
 			p->detection_achannel_op = AUDIO_CHANNEL_OP_COPY;
 			new_detection_kfifo_size = MAX_KFIFO_BUFFER_SIZE_MONO;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 		} else if (p->pdata->detection_buffer_channels == 4) {
 			p->detection_achannel_op =
 			AUDIO_CHANNEL_OP_DUPLICATE_1_TO_4;
@@ -2474,7 +2474,7 @@ static int dbmdx_update_microphone_mode(struct dbmdx_private *p,
 
 		if (p->audio_pcm_channels == 1)
 			p->pcm_achannel_op = AUDIO_CHANNEL_OP_COPY;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 		else if (p->audio_pcm_channels == 4)
 			p->pcm_achannel_op = AUDIO_CHANNEL_OP_DUPLICATE_1_TO_4;
 #endif
@@ -2483,7 +2483,7 @@ static int dbmdx_update_microphone_mode(struct dbmdx_private *p,
 				AUDIO_CHANNEL_OP_DUPLICATE_1_TO_2;
 
 		break;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	case DBMDX_MIC_MODE_DIGITAL_4CH:
 		p->pdata->va_audio_channels = 4;
 		if (p->pdata->detection_buffer_channels == 0 ||
@@ -2550,7 +2550,7 @@ static int dbmdx_reconfigure_microphones(struct dbmdx_private *p,
 
 	dev_dbg(p->dev, "%s: val - %d\n", __func__, (int)mode);
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	if ((mode == DBMDX_MIC_MODE_DIGITAL_LEFT) ||
 		(mode == DBMDX_MIC_MODE_DIGITAL_RIGHT)) {
 		mode = DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_LEFT;
@@ -2737,7 +2737,7 @@ static int dbmdx_set_pcm_rate(struct dbmdx_private *p,
 		return 0;
 
 	switch (pcm_rate) {
-#ifdef DBMDX_PCM_RATE_8000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_8000_SUPPORTED)
 	case 8000:
 		rate_mask = DBMDX_SND_PCM_RATE_8000;
 		break;
@@ -2745,12 +2745,12 @@ static int dbmdx_set_pcm_rate(struct dbmdx_private *p,
 	case 16000:
 		rate_mask = DBMDX_SND_PCM_RATE_16000;
 		break;
-#ifdef DBMDX_PCM_RATE_32000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_32000_SUPPORTED)
 	case 32000:
 		rate_mask = DBMDX_SND_PCM_RATE_32000;
 		break;
 #endif
-#ifdef DBMDX_PCM_RATE_44100_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_44100_SUPPORTED)
 	case 44100:
 		rate_mask = DBMDX_SND_PCM_RATE_44100;
 		break;
@@ -2827,7 +2827,7 @@ static int dbmdx_read_fw_vad_settings(struct dbmdx_private *p)
 
 static int dbmdx_verify_model_support(struct dbmdx_private *p)
 {
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	u16 cur_config = 0;
 
 	p->okg_a_model_support = false;
@@ -2848,7 +2848,7 @@ static int dbmdx_verify_model_support(struct dbmdx_private *p)
 		return 0;
 
 	}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	if (cur_config & DBMDX_OKG_AMODEL_SUPPORT_MASK) {
 		p->okg_a_model_support = true;
 		dev_dbg(p->dev, "%s: OKG FW Support was verified\n", __func__);
@@ -3617,7 +3617,7 @@ static int dbmdx_acoustic_model_build(struct dbmdx_private *p,
 
 }
 
-#ifdef EXTERNAL_SOC_AMODEL_LOADING_ENABLED
+#if IS_ENABLED(EXTERNAL_SOC_AMODEL_LOADING_ENABLED)
 static int dbmdx_acoustic_model_build_from_external(struct dbmdx_private *p,
 							const u8 *amodel_data,
 							unsigned int size)
@@ -3707,7 +3707,7 @@ static int dbmdx_acoustic_model_build_from_external(struct dbmdx_private *p,
 		cur_amodel = &(p->secondary_amodel);
 		p->pdata->amodel_options = amodel_options;
 	}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	else if (amode == LOAD_AMODEL_OKG) {
 		cur_amodel = &(p->okg_amodel);
 		p->pdata->amodel_options = DBMDX_AMODEL_INCLUDES_HEADERS;
@@ -4105,7 +4105,7 @@ static int dbmdx_config_va_mode(struct dbmdx_private *p)
 	u32 cur_mic_config;
 
 	dev_dbg(p->dev, "%s\n", __func__);
-#ifdef DBMDX_FW_BELOW_280
+#if IS_ENABLED(DBMDX_FW_BELOW_280)
 	if (p->va_debug_mode && (p->active_interface != DBMDX_INTERFACE_UART)) {
 		ret = dbmdx_send_cmd(p, DBMDX_VA_DEBUG_1 | 0x5, NULL);
 		if (ret < 0) {
@@ -4145,7 +4145,7 @@ static int dbmdx_config_va_mode(struct dbmdx_private *p)
 			msleep(cur_val);
 			continue;
 		}
-#ifdef DBMDX_FW_BELOW_280
+#if IS_ENABLED(DBMDX_FW_BELOW_280)
 		if (p->va_debug_mode &&
 			(p->active_interface != DBMDX_INTERFACE_UART) &&
 			(cur_reg ==
@@ -4270,7 +4270,7 @@ static int dbmdx_config_va_mode(struct dbmdx_private *p)
 			__func__);
 		goto out;
 	}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	/* read fw register & set OKG algorithm enable/disable */
 	p->va_flags.okg_a_model_downloaded_to_fw = 0;
 	p->va_flags.okg_a_model_enabled = true;
@@ -4526,7 +4526,7 @@ static int dbmdx_vqe_firmware_ready(struct dbmdx_private *p,
 
 	dev_dbg(p->dev, "%s: non-overlay: %d\n", __func__, load_non_overlay);
 
-#ifdef DBMDX_OVERLAY_BOOT_SUPPORTED
+#if IS_ENABLED(DBMDX_OVERLAY_BOOT_SUPPORTED)
 	/* check if non-overlay firmware is available */
 	if (p->vqe_non_overlay_fw && load_non_overlay) {
 		ssize_t send;
@@ -5699,7 +5699,7 @@ static ssize_t dbmdx_va_cfg_values_show(struct device *dev,
 
 	return off;
 }
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 static ssize_t dbmdx_va_ns_enable_show(struct device *dev,
 				    struct device_attribute *attr, char *buf)
 {
@@ -6185,7 +6185,7 @@ static int dbmdx_set_sv_recognition_mode(struct dbmdx_private *p,
 
 }
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 static int dbmdx_set_okg_recognition_mode(struct dbmdx_private *p,
 					enum dbmdx_okg_recognition_mode mode)
 {
@@ -6569,7 +6569,7 @@ out:
 }
 #endif /* DMBDX_OKG_AMODEL_SUPPORT */
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 static int dbmdx_send_asrp_params_buf(struct dbmdx_private *p,
 					const void *data,
 					size_t size)
@@ -7434,7 +7434,7 @@ static int dbmdx_va_amodel_load_single(struct dbmdx_private *p,
 
 	model_size_fw = (int)(model_size / 16) + 1;
 
-#ifdef DBMDX_FW_BELOW_380
+#if IS_ENABLED(DBMDX_FW_BELOW_380)
 	ret = dbmdx_send_cmd(p, DBMDX_VA_PRIMARY_AMODEL_SIZE | model_size_fw,
 				NULL);
 
@@ -7655,7 +7655,7 @@ static int dbmdx_va_amodel_load_dual(struct dbmdx_private *p,
 
 	model_size_fw = (int)(model_size / 16) + 1;
 
-#ifdef DBMDX_FW_BELOW_380
+#if IS_ENABLED(DBMDX_FW_BELOW_380)
 	ret = dbmdx_send_cmd(p, DBMDX_VA_PRIMARY_AMODEL_SIZE | model_size_fw,
 				NULL);
 
@@ -7677,7 +7677,7 @@ static int dbmdx_va_amodel_load_dual(struct dbmdx_private *p,
 
 	model_size_fw = (int)(model_size / 16) + 1;
 
-#ifdef DBMDX_FW_BELOW_380
+#if IS_ENABLED(DBMDX_FW_BELOW_380)
 	ret = dbmdx_send_cmd(p, DBMDX_VA_SECONDARY_AMODEL_SIZE | model_size_fw,
 				NULL);
 
@@ -7802,7 +7802,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 	bool sv_model_selected = false;
 	bool sv_model_was_loaded = false;
 	unsigned int cur_opmode = p->va_flags.mode;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	bool load_okg_model = false;
 	bool okg_model_selected = false;
 #endif
@@ -7842,7 +7842,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 	if (model_select_mask == DBMDX_NO_MODEL_SELECTED) {
 		if (p->sv_a_model_support)
 			sv_model_selected = true;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (p->okg_a_model_support && p->va_flags.okg_a_model_enabled)
 			okg_model_selected = true;
 #endif
@@ -7850,7 +7850,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 		if (p->sv_a_model_support)
 			sv_model_selected =
 				model_select_mask & DBMDX_SV_MODEL_SELECTED;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (p->okg_a_model_support && p->va_flags.okg_a_model_enabled)
 			okg_model_selected =
 				model_select_mask & DBMDX_OKG_MODEL_SELECTED;
@@ -7901,7 +7901,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 			}
 		}
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (okg_model_selected) {
 			ret = dbmdx_set_okg_recognition_mode(p,
 				OKG_RECOGNITION_MODE_DISABLED);
@@ -7962,7 +7962,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 			}
 		}
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (okg_model_selected) {
 			ret = dbmdx_set_okg_recognition_mode(p,
 				OKG_RECOGNITION_MODE_DISABLED);
@@ -8151,7 +8151,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 				p->va_detection_mode_custom_params =
 					model_custom_params;
 			}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 			if (okg_model_selected)
 				p->va_flags.okg_recognition_mode =
 						OKG_RECOGNITION_MODE_ENABLED;
@@ -8175,7 +8175,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 				p->va_detection_mode_custom_params =
 							model_custom_params;
 		}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (okg_model_selected) {
 			p->va_flags.okg_recognition_mode =
 					OKG_RECOGNITION_MODE_ENABLED;
@@ -8237,7 +8237,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 			sv_model_was_loaded = true;
 		}
 	}
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	/* Check whether to load OKG model
 	 * If SV amodel was loaded it is required to reload the OKG amodel
 	 */
@@ -8294,7 +8294,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 			}
 		}
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (okg_model_selected) {
 			ret = dbmdx_set_okg_recognition_mode(p,
 				OKG_RECOGNITION_MODE_DISABLED);
@@ -8310,7 +8310,7 @@ static int dbmdx_va_amodel_update(struct dbmdx_private *p, int val)
 		/* Restore mode if needed */
 		if (cur_opmode == DBMDX_DETECTION ||
 				cur_opmode == DBMDX_DETECTION_AND_STREAMING) {
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 			/* If OKG  or SV were in detection mode were not,
 			 * reloaded, put it back in detection mode
 			 */
@@ -8719,7 +8719,7 @@ static ssize_t dbmdx_va_backlog_size_show(struct device *dev,
 			"Backlog length: %d\n",
 			p->pdata->va_backlog_length);
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	off += snprintf(buf + off, PAGE_SIZE - off,
 			"OKG Backlog length: %d\n",
 			p->pdata->va_backlog_length_okg);
@@ -9137,7 +9137,7 @@ static ssize_t dbmdx_va_mic_mode_store(struct device *dev,
 	case DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_LEFT:
 	case DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_RIGHT:
 	case DBMDX_MIC_MODE_ANALOG:
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	case DBMDX_MIC_MODE_DIGITAL_4CH:
 #endif
 	case DBMDX_MIC_MODE_DISABLE:
@@ -9397,7 +9397,7 @@ static ssize_t dbmdx_dump_state(struct device *dev,
 			off += snprintf(buf + off, PAGE_SIZE - off,
 						"\tVA cfg %8.8x: 0x%8.8x\n",
 				i, pdata->va_cfg_value[i]);
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 		off += snprintf(buf + off, PAGE_SIZE - off, "\n");
 
 		off += snprintf(buf + off, PAGE_SIZE - off,
@@ -9453,7 +9453,7 @@ static ssize_t dbmdx_dump_state(struct device *dev,
 				"\tDefault backlog length of %d\n",
 				pdata->va_backlog_length);
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		off += snprintf(buf + off, PAGE_SIZE - off,
 				"\tDefault OKG backlog length of %d\n",
 				pdata->va_backlog_length_okg);
@@ -9662,7 +9662,7 @@ static ssize_t dbmdx_dump_current_state(struct device *dev,
 	off += snprintf(buf + off, PAGE_SIZE - off,
 					"\tRecovery Times:\t%u\n",
 					p->recovery_times);
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 	off += snprintf(buf + off, PAGE_SIZE - off,
 					"\tKeep Alive Triggers: %d\n",
 					p->keep_alive_triggers);
@@ -9675,7 +9675,7 @@ static ssize_t dbmdx_dump_current_state(struct device *dev,
 		off += snprintf(buf + off, PAGE_SIZE - off,
 						"\tVA Backlog_length\t%d\n",
 				p->pdata->va_backlog_length);
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		off += snprintf(buf + off, PAGE_SIZE - off,
 						"\tVA OKG Backlog_length\t%d\n",
 				p->pdata->va_backlog_length_okg);
@@ -9761,7 +9761,7 @@ static ssize_t dbmdx_dump_current_state(struct device *dev,
 					p->va_flags.sv_recognition_mode ==
 					SV_RECOGNITION_MODE_VOICE_ENERGY ?
 					"Voice Energy" : "Passphrase/CMD");
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		off += snprintf(buf + off, PAGE_SIZE - off,
 					"\tOKG Amodel Support:\t%s\n",
 			p->okg_a_model_support ? "ON" : "OFF");
@@ -10488,7 +10488,7 @@ static DEVICE_ATTR(va_speed_cfg, 0644,
 		   dbmdx_va_speed_cfg_show, dbmdx_va_speed_cfg_store);
 static DEVICE_ATTR(va_cfg_values, 0644,
 		   dbmdx_va_cfg_values_show, dbmdx_va_cfg_values_store);
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 static DEVICE_ATTR(va_ns_enable, 0644,
 		   dbmdx_va_ns_enable_show,
 		   dbmdx_va_ns_enable_store);
@@ -10571,7 +10571,7 @@ static DEVICE_ATTR(vqe_spkvollvl, 0644,
 		   dbmdx_vqe_spkvollvl_show, dbmdx_vqe_spkvollvl_store);
 static DEVICE_ATTR(wakeup, 0644,
 		   dbmdx_wakeup_show, dbmdx_wakeup_store);
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 static DEVICE_ATTR(va_okg_amodel_enable,  0644,
 		dbmdx_va_okg_amodel_enable_show, dbmdx_okg_amodel_enable_store);
 #endif
@@ -10592,7 +10592,7 @@ static struct attribute *dbmdx_va_attributes[] = {
 	&dev_attr_va_debug.attr,
 	&dev_attr_va_dump_regs.attr,
 	&dev_attr_va_cfg_values.attr,
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	&dev_attr_va_ns_cfg_values.attr,
 	&dev_attr_va_ns_enable.attr,
 	&dev_attr_va_ns_pcm_streaming_enable.attr,
@@ -10622,7 +10622,7 @@ static struct attribute *dbmdx_va_attributes[] = {
 	&dev_attr_va_max_detection_buffer_size.attr,
 	&dev_attr_va_retrigger_interval_sec.attr,
 	&dev_attr_va_amodel_options.attr,
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	&dev_attr_va_okg_amodel_enable.attr,
 #endif
 	NULL,
@@ -10768,7 +10768,7 @@ static int dbmdx_perform_recovery(struct dbmdx_private *p)
 
 		bool sv_a_model_loaded = saved_va_flags.amodel_len > 0 &&
 					saved_va_flags.a_model_downloaded_to_fw;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		bool okg_a_model_downloaded_to_fw =
 				saved_va_flags.okg_a_model_enabled &&
 				saved_va_flags.okg_amodel_len > 0 &&
@@ -10805,7 +10805,7 @@ static int dbmdx_perform_recovery(struct dbmdx_private *p)
 			p->unlock(p);
 
 			p->va_flags.auto_detection_disabled = true;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 			/* If SV model is not loaded OKG model should be
 			 * reloaded explicitly, otherwise it will be loaded
 			 * after SV model is reloaded
@@ -10883,7 +10883,7 @@ static int dbmdx_perform_recovery(struct dbmdx_private *p)
 					SV_RECOGNITION_MODE_DISABLED)
 					model_select_mask |=
 						DBMDX_SV_MODEL_SELECTED;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 				if (saved_va_flags.okg_recognition_mode !=
 					OKG_RECOGNITION_MODE_DISABLED)
 					model_select_mask |=
@@ -10962,7 +10962,7 @@ out:
 int dbmdx_get_samples(struct snd_soc_component *component, char *buffer,
 	unsigned int samples)
 {
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
@@ -10972,7 +10972,7 @@ int dbmdx_get_samples(struct snd_soc_component *component, char *buffer,
 	int ret;
 	int err = -1;
 
-#ifdef DBMDX_VV_DEBUG
+#if IS_ENABLED(DBMDX_VV_DEBUG)
 	pr_debug("%s Requested %u, Available %d\n", __func__, samples, avail);
 #endif
 	if (p->va_flags.pcm_streaming_pushing_zeroes)
@@ -10989,9 +10989,9 @@ int dbmdx_get_samples(struct snd_soc_component *component, char *buffer,
 }
 EXPORT_SYMBOL(dbmdx_get_samples);
 
-int dbmdx_codec_lock(struct snd_soc_component *component)
+int dbmdx_component_lock(struct snd_soc_component *component)
 {
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
@@ -11005,11 +11005,11 @@ int dbmdx_codec_lock(struct snd_soc_component *component)
 
 	return 0;
 }
-EXPORT_SYMBOL(dbmdx_codec_lock);
+EXPORT_SYMBOL(dbmdx_component_lock);
 
-int dbmdx_codec_unlock(struct snd_soc_component *component)
+int dbmdx_component_unlock(struct snd_soc_component *component)
 {
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
@@ -11021,9 +11021,9 @@ int dbmdx_codec_unlock(struct snd_soc_component *component)
 	atomic_dec(&p->audio_owner);
 	return 0;
 }
-EXPORT_SYMBOL(dbmdx_codec_unlock);
+EXPORT_SYMBOL(dbmdx_component_unlock);
 
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 
 int dbmdx_start_pcm_streaming(struct snd_soc_component *component,
 	struct snd_pcm_substream *substream)
@@ -11307,7 +11307,7 @@ int dbmdx_stop_pcm_streaming(struct snd_soc_component *component)
 	 */
 	if (required_mode == DBMDX_DETECTION) {
 		p->chip->transport_enable(p, false);
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 		if (p->pdata->retrigger_interval_sec &&
 						p->keep_alive_timer_created) {
 			ret = arm_keep_alive_timer(p);
@@ -11372,7 +11372,7 @@ static int dbmdx_dai_hw_params(struct snd_pcm_substream *substream,
 		else if (channels == 2 && p->pdata->va_audio_channels == 1)
 			p->pcm_achannel_op =
 				AUDIO_CHANNEL_OP_DUPLICATE_1_TO_2;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 		else if (channels == 1 && p->pdata->va_audio_channels == 4)
 			p->pcm_achannel_op =
 				AUDIO_CHANNEL_OP_TRUNCATE_4_TO_1;
@@ -11414,17 +11414,17 @@ static int dbmdx_dai_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	switch (params_rate(params)) {
-#ifdef DBMDX_PCM_RATE_8000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_8000_SUPPORTED)
 	case 8000:
 		/* Fall through */
 #endif
 	case 16000:
 		/* Fall through */
-#ifdef DBMDX_PCM_RATE_32000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_32000_SUPPORTED)
 	case 32000:
 		/* Fall through */
 #endif
-#ifdef DBMDX_PCM_RATE_44100_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_44100_SUPPORTED)
 	case 44100:
 		/* Fall through */
 #endif
@@ -11460,14 +11460,14 @@ static struct snd_soc_dai_driver dbmdx_va_dais[] = {
 			.channels_min	= 1,
 			.channels_max	= MAX_SUPPORTED_CHANNELS,
 			.rates		=
-#ifdef DBMDX_PCM_RATE_8000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_8000_SUPPORTED)
 					SNDRV_PCM_RATE_8000 |
 #endif
 					SNDRV_PCM_RATE_16000 |
-#ifdef DBMDX_PCM_RATE_32000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_32000_SUPPORTED)
 					SNDRV_PCM_RATE_32000 |
 #endif
-#ifdef DBMDX_PCM_RATE_32000_SUPPORTED
+#if IS_ENABLED(DBMDX_PCM_RATE_32000_SUPPORTED)
 					SNDRV_PCM_RATE_44100 |
 #endif
 					SNDRV_PCM_RATE_48000,
@@ -11662,8 +11662,8 @@ static int dbmdx_va_control_get(struct snd_kcontrol *kcontrol,
 	int ret;
 	unsigned int va_reg = DBMDX_VA_CMD_MASK | ((reg & 0xff) << 16);
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -11787,8 +11787,8 @@ static int dbmdx_va_control_put(struct snd_kcontrol *kcontrol,
 	int mask = (1 << fls(max)) - 1;
 	int ret;
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -11867,8 +11867,8 @@ static int dbmdx_vqe_use_case_get(struct snd_kcontrol *kcontrol,
 				  struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -11913,8 +11913,8 @@ static int dbmdx_vqe_use_case_put(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -11970,8 +11970,8 @@ static int dbmdx_operation_mode_get(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12046,8 +12046,8 @@ static int dbmdx_operation_mode_set(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12223,8 +12223,8 @@ static int dbmdx_amodel_load_set(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12293,15 +12293,15 @@ out:
 	return ret;
 }
 
-#ifdef EXTERNAL_SOC_AMODEL_LOADING_ENABLED
-#ifdef SOC_BYTES_EXT_HAS_KCONTROL_FIELD
+#if IS_ENABLED(EXTERNAL_SOC_AMODEL_LOADING_ENABLED)
+#if IS_ENABLED(SOC_BYTES_EXT_HAS_KCONTROL_FIELD)
 static int dbmdx_external_amodel_put(struct snd_kcontrol *kcontrol,
 				 const unsigned int __user *bytes,
 				 unsigned int size)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12326,7 +12326,7 @@ static int dbmdx_external_amodel_put(const unsigned int __user *bytes,
 	 * 8B:TLV Header + 1B:Model type + 1B:Model Options + 1B:Number of files
 	 * 4B:1st File Len + 1st File Data + [4B:2nd File Len + 2nd File Data]..
 	 */
-#ifdef SOC_TLV_HEADER_ENABLED
+#if IS_ENABLED(SOC_TLV_HEADER_ENABLED)
 	if (size < 15) {
 #else
 	if (size < 9) {
@@ -12350,7 +12350,7 @@ static int dbmdx_external_amodel_put(const unsigned int __user *bytes,
 
 	dev_info(p->dev, "%s: Buffer size is %d\n", __func__, size);
 
-#ifdef SOC_TLV_HEADER_ENABLED
+#if IS_ENABLED(SOC_TLV_HEADER_ENABLED)
 	/* Skips the TLV header. */
 	bytes += 2;
 #endif
@@ -12380,8 +12380,8 @@ static int dbmdx_wordid_get(struct snd_kcontrol *kcontrol,
 			    struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12413,8 +12413,8 @@ static int dbmdx_wordid_put(struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12436,8 +12436,8 @@ static int dbmdx_microphone_mode_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12469,8 +12469,8 @@ static int dbmdx_microphone_mode_set(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12485,7 +12485,7 @@ static int dbmdx_microphone_mode_set(struct snd_kcontrol *kcontrol,
 	case DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_LEFT:
 	case DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_RIGHT:
 	case DBMDX_MIC_MODE_ANALOG:
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	case DBMDX_MIC_MODE_DIGITAL_4CH:
 #endif
 	case DBMDX_MIC_MODE_DISABLE:
@@ -12557,8 +12557,8 @@ static int dbmdx_va_capture_on_detect_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12583,8 +12583,8 @@ static int dbmdx_va_capture_on_detect_set(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12597,14 +12597,14 @@ static int dbmdx_va_capture_on_detect_set(struct snd_kcontrol *kcontrol,
 	return ret;
 }
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 
 static int dbmdx_va_pcm_streaming_ns_enable_get(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12629,8 +12629,8 @@ static int dbmdx_va_pcm_streaming_ns_enable_set(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_value *ucontrol)
 {
 #if defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
-	struct dbmdx_private *p = snd_soc_codec_get_drvdata(codec);
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct dbmdx_private *p = snd_soc_component_get_drvdata(component);
 #else
 	struct dbmdx_private *p = dbmdx_data;
 #endif
@@ -12650,7 +12650,7 @@ static const char * const dbmdx_microphone_mode_texts[] = {
 	"DigitalStereoTrigOnLeft",
 	"DigitalStereoTrigOnRight",
 	"Analog",
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	"Digital4Channels",
 #endif
 	"Disable",
@@ -12696,12 +12696,12 @@ static const struct snd_kcontrol_new dbmdx_va_snd_controls[] = {
 		dbmdx_microphone_mode_get, dbmdx_microphone_mode_set),
 	SOC_ENUM_EXT("Capture on detection", dbmdx_va_off_on_enum,
 		dbmdx_va_capture_on_detect_get, dbmdx_va_capture_on_detect_set),
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	SOC_ENUM_EXT("Streaming NS", dbmdx_va_off_on_enum,
 		dbmdx_va_pcm_streaming_ns_enable_get,
 		dbmdx_va_pcm_streaming_ns_enable_set),
 #endif
-#ifdef EXTERNAL_SOC_AMODEL_LOADING_ENABLED
+#if IS_ENABLED(EXTERNAL_SOC_AMODEL_LOADING_ENABLED)
 	SND_SOC_BYTES_TLV("Acoustic Model", MAX_AMODEL_SIZE, NULL,
 				dbmdx_external_amodel_put),
 #endif
@@ -12831,7 +12831,7 @@ static void dbmdx_dev_remove(struct snd_soc_component *component)
 	dev_dbg(component->dev, "%s\n", __func__);
 }
 
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM)
 static int dbmdx_dev_suspend(struct snd_soc_component *component)
 {
 	dev_dbg(component->dev, "%s\n", __func__);
@@ -12861,7 +12861,7 @@ static struct snd_soc_component_driver soc_component_dev_dbmdx = {
 
 
 #if !defined(SOC_CONTROLS_FOR_DBMDX_CODEC_ONLY)
-int dbmdx_remote_add_codec_controls(struct snd_soc_component *component)
+int dbmdx_remote_add_component_controls(struct snd_soc_component *component)
 {
 	int ret = 0;
 	int rc;
@@ -12900,13 +12900,13 @@ int dbmdx_remote_add_codec_controls(struct snd_soc_component *component)
 			 __func__, (int)(ARRAY_SIZE(dbmdx_vqe_snd_controls)));
 	}
 
-	p->remote_codec_in_use = 1;
+	p->remote_component_in_use = 1;
 
 	return ret;
 }
 #else
-EXPORT_SYMBOL(dbmdx_remote_add_codec_controls);
-int dbmdx_remote_add_codec_controls(struct snd_soc_codec *codec)
+EXPORT_SYMBOL(dbmdx_remote_add_component_controls);
+int dbmdx_remote_add_component_controls(struct snd_soc_component *component)
 {
 	dev_dbg(component->dev, "%s\n", __func__);
 
@@ -12939,7 +12939,7 @@ static int dbmdx_process_detection_irq(struct dbmdx_private *p,
 {
 	u16 event_id = 23;
 	u16 score = 0;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	bool okg_passphrase_detected = false;
 #endif
 	bool sv_passphrase_detected = false;
@@ -12960,7 +12960,7 @@ static int dbmdx_process_detection_irq(struct dbmdx_private *p,
 	p->va_flags.buffering = 0;
 	flush_work(&p->sv_work);
 
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 	dev_dbg(p->dev, "%s: Cancelling Keep Alive timer\n", __func__);
 	p->va_flags.cancel_keep_alive_work = true;
 	cancel_keep_alive_timer(p);
@@ -12969,7 +12969,7 @@ static int dbmdx_process_detection_irq(struct dbmdx_private *p,
 
 	p->lock(p);
 
-#ifdef DBMDX_RECOVERY_TEST_ENABLE
+#if IS_ENABLED(DBMDX_RECOVERY_TEST_ENABLE)
 	if (p->va_flags.va_debug_val1 == 1) {
 		dev_err(p->dev,	"%s: Emulating Dead Chip during irq\n",
 				__func__);
@@ -12987,7 +12987,7 @@ static int dbmdx_process_detection_irq(struct dbmdx_private *p,
 		sv_passphrase_detected = true;
 	} else if (p->va_detection_mode == DETECTION_MODE_PHRASE)  {
 		dev_info(p->dev, "%s: PASSPHRASE\n", __func__);
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (p->va_flags.okg_recognition_mode ==
 				OKG_RECOGNITION_MODE_ENABLED) {
 			ret = dbmdx_send_cmd(p, DBMDX_VA_OKG_INTERFACE,
@@ -13054,7 +13054,7 @@ static int dbmdx_process_detection_irq(struct dbmdx_private *p,
 			p->va_cur_backlog_length =
 					p->pdata->va_backlog_length;
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		}
 #endif
 	} else if (p->va_detection_mode == DETECTION_MODE_VOICE_COMMAND) {
@@ -13108,7 +13108,7 @@ static int dbmdx_process_detection_irq(struct dbmdx_private *p,
 
 	if (p->pdata->detection_after_buffering !=
 		DETECTION_AFTER_BUFFERING_MODE_ENABLE_ALL) {
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (okg_passphrase_detected) {
 			ret = dbmdx_set_okg_recognition_mode(p,
 				OKG_RECOGNITION_MODE_DISABLED);
@@ -13368,7 +13368,7 @@ static void dbmdx_sv_work(struct work_struct *work)
 			if (p->detection_achannel_op ==
 				AUDIO_CHANNEL_OP_DUPLICATE_1_TO_2)
 				kfifo_space = kfifo_space / 2;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 			else if (p->detection_achannel_op ==
 				AUDIO_CHANNEL_OP_DUPLICATE_1_TO_4)
 				kfifo_space = kfifo_space / 4;
@@ -13499,7 +13499,7 @@ out_fail_unlock:
 	dev_dbg(p->dev, "%s done\n", __func__);
 }
 
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 
 static void dbmdx_pcm_streaming_work_mod_0(struct work_struct *work)
 {
@@ -13664,7 +13664,7 @@ static void dbmdx_pcm_streaming_work_mod_0(struct work_struct *work)
 				if (p->detection_achannel_op ==
 					AUDIO_CHANNEL_OP_DUPLICATE_1_TO_2)
 					kfifo_space = kfifo_space / 2;
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 				else if (p->detection_achannel_op ==
 					AUDIO_CHANNEL_OP_DUPLICATE_1_TO_4)
 					kfifo_space = kfifo_space / 4;
@@ -14131,13 +14131,13 @@ static irqreturn_t dbmdx_sv_interrupt_soft(int irq, void *dev)
 
 	if ((p->device_ready) && (p->va_flags.irq_inuse)) {
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 		if (p->ps_nosuspend_wl)
 			__pm_wakeup_event(p->ps_nosuspend_wl,
 					DBMDX_WAKELOCK_IRQ_TIMEOUT_MS);
 #endif
 
-#ifdef DBMDX_PROCESS_DETECTION_IRQ_WITHOUT_WORKER
+#if IS_ENABLED(DBMDX_PROCESS_DETECTION_IRQ_WITHOUT_WORKER)
 		dbmdx_process_detection_irq(p, true);
 #else
 		dbmdx_schedule_work(p, &p->uevent_work);
@@ -14173,7 +14173,7 @@ static int dbmdx_get_va_resources(struct dbmdx_private *p)
 
 	atomic_set(&p->audio_owner, 0);
 
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 	if (p->pdata->pcm_streaming_mode == 0)
 		INIT_WORK(&p->pcm_streaming_work,
 			dbmdx_pcm_streaming_work_mod_0);
@@ -14186,7 +14186,7 @@ static int dbmdx_get_va_resources(struct dbmdx_private *p)
 	INIT_WORK(&p->sv_work, dbmdx_sv_work);
 	INIT_WORK(&p->uevent_work, dbmdx_uevent_work);
 
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 	INIT_WORK(&p->keep_alive_work, dbmdx_keep_alive_work);
 #endif
 
@@ -14217,7 +14217,7 @@ static int dbmdx_get_va_resources(struct dbmdx_private *p)
 	p->secondary_amodel.amodel_loaded = false;
 	p->secondary_amodel.amodel_buf = NULL;
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	p->okg_amodel.amodel_loaded = false;
 	p->okg_amodel.amodel_buf = NULL;
 #endif
@@ -14256,7 +14256,7 @@ static int dbmdx_get_va_resources(struct dbmdx_private *p)
 			__func__);
 		goto err_free_irq;
 	}
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	p->ps_nosuspend_wl = wakeup_source_create("dbmdx_nosuspend_wakelock");
 
 	if (p->ps_nosuspend_wl)
@@ -14287,7 +14287,7 @@ static void dbmdx_free_va_resources(struct dbmdx_private *p)
 		vfree(p->primary_amodel.amodel_buf);
 	if (p->secondary_amodel.amodel_buf)
 		vfree(p->secondary_amodel.amodel_buf);
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	if (p->okg_amodel.amodel_buf)
 		vfree(p->okg_amodel.amodel_buf);
 #endif
@@ -14299,7 +14299,7 @@ static void dbmdx_free_va_resources(struct dbmdx_private *p)
 		free_irq(p->sv_irq, p);
 	}
 	sysfs_remove_group(&p->dev->kobj, &dbmdx_va_attribute_group);
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	if (p->ps_nosuspend_wl)	{
 		wakeup_source_remove(p->ps_nosuspend_wl);
 		wakeup_source_destroy(p->ps_nosuspend_wl);
@@ -14334,7 +14334,7 @@ static void dbmdx_free_vqe_resources(struct dbmdx_private *p)
 
 static int dbmdx_common_probe(struct dbmdx_private *p)
 {
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	struct device_node *np = p->dev->of_node;
 #endif
 	struct task_struct *boot_thread;
@@ -14344,7 +14344,7 @@ static int dbmdx_common_probe(struct dbmdx_private *p)
 	dbmdx_data = p;
 	dev_set_drvdata(p->dev, p);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	if (!np) {
 		dev_err(p->dev, "%s: error no devicetree entry\n", __func__);
 		ret = -ENODEV;
@@ -14365,7 +14365,7 @@ static int dbmdx_common_probe(struct dbmdx_private *p)
 		}
 	}
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	/* reset */
 	p->pdata->gpio_reset = of_get_named_gpio(np, "reset-gpio", 0);
 #endif
@@ -14384,7 +14384,7 @@ static int dbmdx_common_probe(struct dbmdx_private *p)
 	gpio_set_value(p->pdata->gpio_reset, 0);
 
 	/* sv */
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	p->pdata->gpio_sv = of_get_named_gpio(np, "sv-gpio", 0);
 #endif
 	if (!gpio_is_valid(p->pdata->gpio_sv)) {
@@ -14409,7 +14409,7 @@ static int dbmdx_common_probe(struct dbmdx_private *p)
 		}
 	}
 	/* d2 strap 1 - only on some boards */
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	p->pdata->gpio_d2strap1 = of_get_named_gpio(np, "d2-strap1", 0);
 #endif
 	if (gpio_is_valid(p->pdata->gpio_d2strap1)) {
@@ -14430,7 +14430,7 @@ static int dbmdx_common_probe(struct dbmdx_private *p)
 					__func__);
 				goto err_gpio_free;
 			}
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 			ret = of_property_read_u32(np, "d2-strap1-rst-val",
 					&p->pdata->gpio_d2strap1_rst_val);
 			if (ret) {
@@ -14454,7 +14454,7 @@ static int dbmdx_common_probe(struct dbmdx_private *p)
 	}
 
 	/* wakeup */
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	p->pdata->gpio_wakeup = of_get_named_gpio(np, "wakeup-gpio", 0);
 #endif
 	if (!gpio_is_valid(p->pdata->gpio_wakeup)) {
@@ -14616,7 +14616,7 @@ err_gpio_free:
 err_clk_off:
 	/* disable constant clock */
 	p->clk_disable(p, DBMDX_CLK_CONSTANT);
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 err:
 #endif
 	return ret;
@@ -14631,9 +14631,9 @@ static void dbmdx_common_remove(struct dbmdx_private *p)
 	if (p->pdata->feature_vqe)
 		dbmdx_free_vqe_resources(p);
 
-#ifndef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && IS_MODULE(CONFIG_SND_SOC_DBMDX))
 	dbmdx_deinit_interface();
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 	board_dbmdx_snd_exit();
 	snd_dbmdx_pcm_exit();
 #endif
@@ -14653,14 +14653,14 @@ static void dbmdx_common_remove(struct dbmdx_private *p)
 	gpio_free(p->pdata->gpio_reset);
 	if (p->pdata->gpio_sv >= 0)
 		gpio_free(p->pdata->gpio_sv);
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	if (p->pdata->vqe_cfg_values)
 		kfree(p->pdata->vqe_cfg_value);
 	if (p->pdata->vqe_modes_values)
 		kfree(p->pdata->vqe_modes_value);
 	if (p->pdata->va_cfg_values)
 		kfree(p->pdata->va_cfg_value);
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	if (p->pdata->va_ns_cfg_values)
 		kfree(p->pdata->va_ns_cfg_value);
 #endif
@@ -14674,7 +14674,7 @@ static void dbmdx_common_remove(struct dbmdx_private *p)
 	kfree(p);
 }
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 static int of_dev_node_match(struct device *dev, const void *data)
 {
 	return dev->of_node == data;
@@ -14752,7 +14752,7 @@ static int dbmdx_of_get_clk_info(struct dbmdx_private *p,
 
 	return 0;
 }
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 static int dbmdx_get_va_ns_devtree_pdata(struct device *dev,
 						struct dbmdx_private *p)
 {
@@ -14947,7 +14947,7 @@ static int dbmdx_get_va_devtree_pdata(struct device *dev,
 			"%s: using device-tree VA preboot firmware name: %s\n",
 			__func__, pdata->va_preboot_firmware_name);
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	ret = of_property_read_string(np,
 				      "va-asrp-params-firmware-name",
 				      &pdata->va_asrp_params_firmware_name);
@@ -15131,7 +15131,7 @@ static int dbmdx_get_va_devtree_pdata(struct device *dev,
 			dev_dbg(dev, "%s: VA cfg %8.8x: 0x%8.8x\n",
 				__func__, i, pdata->va_cfg_value[i]);
 	}
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	ret = dbmdx_get_va_ns_devtree_pdata(dev, p);
 	if (ret) {
 		dev_err(p->dev, "%s: Error getting VA NS Dev Tree data\n",
@@ -15223,7 +15223,7 @@ static int dbmdx_get_va_devtree_pdata(struct device *dev,
 			 __func__, p->pdata->va_backlog_length);
 	}
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	ret = of_property_read_u32(np,
 				   "va_backlog_length_okg",
 				   &p->pdata->va_backlog_length_okg);
@@ -15261,7 +15261,7 @@ out_free_va_resources:
 	if (pdata->va_cfg_values)
 		kfree(pdata->va_cfg_value);
 	pdata->va_cfg_values = 0;
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	if (pdata->va_ns_cfg_values)
 		kfree(pdata->va_ns_cfg_value);
 	pdata->va_ns_cfg_values = 0;
@@ -16071,7 +16071,7 @@ static int verify_platform_data(struct device *dev,
 
 		dev_info(dev, "%s: VA preboot firmware name: %s\n",
 				 __func__, pdata->va_preboot_firmware_name);
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 		dev_info(dev, "%s: VA ASRP firmware name: %s\n",
 				 __func__, pdata->va_asrp_params_firmware_name);
 #endif
@@ -16166,7 +16166,7 @@ static int verify_platform_data(struct device *dev,
 		dev_info(dev, "%s: using backlog length of %d\n",
 			 __func__, pdata->va_backlog_length);
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 		if (pdata->va_backlog_length_okg > 0xfff)
 			pdata->va_backlog_length_okg = 0xfff;
 
@@ -16216,7 +16216,7 @@ static int verify_platform_data(struct device *dev,
 
 		pdata->vqe_tdm_bypass_config &= 0x7;
 	}
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	if (pdata->va_ns_supported > 1)
 		pdata->va_ns_supported = 1;
 
@@ -16633,7 +16633,7 @@ static int dbmdx_platform_probe(struct platform_device *pdev)
 	p->dev = &pdev->dev;
 
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	pdata = kzalloc(sizeof(struct dbmdx_platform_data), GFP_KERNEL);
 	if (!pdata) {
 		ret = -ENOMEM;
@@ -16668,7 +16668,7 @@ static int dbmdx_platform_probe(struct platform_device *pdev)
 	}
 #endif
 
-#ifndef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && IS_MODULE(CONFIG_SND_SOC_DBMDX))
 	dbmdx_init_interface();
 #endif
 
@@ -16704,13 +16704,13 @@ static int dbmdx_platform_probe(struct platform_device *pdev)
 		pdata->va_initial_mic_config ==
 			DBMDX_MIC_MODE_DIGITAL_STEREO_TRIG_ON_RIGHT) {
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 		p->pdata->va_audio_channels = 1;
 #else
 		p->pdata->va_audio_channels = 2;
 #endif
 
-#ifdef DBMDX_4CHANNELS_SUPPORT
+#if IS_ENABLED(DBMDX_4CHANNELS_SUPPORT)
 	} else if (pdata->va_initial_mic_config == DBMDX_MIC_MODE_DIGITAL_4CH) {
 
 		p->pdata->va_audio_channels = 4;
@@ -16728,11 +16728,11 @@ static int dbmdx_platform_probe(struct platform_device *pdev)
 
 	p->vqe_vc_syscfg = DBMDX_VQE_SET_SYSTEM_CONFIG_SECONDARY_CFG;
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	p->va_ns_enabled = true;
 	p->va_ns_pcm_streaming_enabled = false;
 
-#ifdef DBMDX_ALWAYS_RELOAD_ASRP_PARAMS
+#if IS_ENABLED(DBMDX_ALWAYS_RELOAD_ASRP_PARAMS)
 		p->va_load_asrp_params_options =
 				DBMDX_ASRP_PARAMS_OPTIONS_ALWAYS_RELOAD;
 #endif
@@ -16742,7 +16742,7 @@ static int dbmdx_platform_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK(&p->delayed_pm_work,
 			  dbmdx_delayed_pm_work_hibernate);
 
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 	if (alarmtimer_get_rtcdev()) {
 		alarm_init(&p->keep_alive_timer, ALARM_BOOTTIME,
 							keep_alive_timer_func);
@@ -16794,11 +16794,11 @@ static int dbmdx_platform_probe(struct platform_device *pdev)
 		goto out_err_destroy_workqueue;
 	}
 #ifndef ALSA_SOC_INTERFACE_NOT_SUPPORTED
-	if (remote_component && p->remote_codec_in_use == 0)
-		dbmdx_remote_add_codec_controls(remote_component);
+	if (remote_component && p->remote_component_in_use == 0)
+		dbmdx_remote_add_component_controls(remote_component);
 
-#ifndef CONFIG_SND_SOC_DBMDX
-#if defined(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && IS_MODULE(CONFIG_SND_SOC_DBMDX))
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_SND_CAPTURE)
 	board_dbmdx_snd_init();
 	snd_dbmdx_pcm_init();
 #endif
@@ -16811,7 +16811,7 @@ static int dbmdx_platform_probe(struct platform_device *pdev)
 out_err_destroy_workqueue:
 	destroy_workqueue(p->dbmdx_workq);
 out_err_free_pdata:
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	kfree(pdata);
 #endif
 out_err_free_private:
@@ -16829,7 +16829,7 @@ static int dbmdx_platform_remove(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 static const struct of_device_id dbmdx_of_match[] = {
 	{ .compatible = "dspg,dbmdx-codec", },
 	{}
@@ -16841,7 +16841,7 @@ static struct platform_driver dbmdx_platform_driver = {
 	.driver = {
 		.name = "dbmdx-codec",
 		.owner = THIS_MODULE,
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 		.of_match_table = dbmdx_of_match,
 #endif
 	},

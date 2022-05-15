@@ -11,7 +11,7 @@
 #ifndef _DBMDX_SPI_H
 #define _DBMDX_SPI_H
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 #include <linux/pm_wakeup.h>
 #endif
 
@@ -38,7 +38,7 @@ struct dbmdx_spi_private {
 	struct dbmdx_spi_data		*pdata;
 	struct spi_device		*client;
 	struct chip_interface		chip;
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	struct wakeup_source		*ps_nosuspend_wl;
 #endif
 	u16				post_pll_div;

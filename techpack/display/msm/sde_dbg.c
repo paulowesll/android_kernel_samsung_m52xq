@@ -382,7 +382,7 @@ static struct sde_debug_bus_entry dbg_bus_sde[] = {
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 0, 137, 0, 32 },
 	{ DBGBUS_PERIPH, DBGBUS_DSPP_STATUS, 0, 78, 0, 32 },
 	{ DBGBUS_AXI_INTF, DBGBUS_DSPP_STATUS, 0, 63, 0, 32 },
- 
+
  	/* ppb_0 */
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 31, 1, 0, 1, _sde_debug_bus_ppb0_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 33, 1, 0, 1, _sde_debug_bus_ppb0_dump },
@@ -390,16 +390,16 @@ static struct sde_debug_bus_entry dbg_bus_sde[] = {
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 42, 1, 0, 1, _sde_debug_bus_ppb0_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 47, 1, 0, 1, _sde_debug_bus_ppb0_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 49, 1, 0, 1, _sde_debug_bus_ppb0_dump },
- 
- 	/* ppb_1 */
+
+	/* ppb_1 */
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 32, 1, 0, 1, _sde_debug_bus_ppb1_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 34, 1, 0, 1, _sde_debug_bus_ppb1_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 36, 1, 0, 1, _sde_debug_bus_ppb1_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 43, 1, 0, 1, _sde_debug_bus_ppb1_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 48, 1, 0, 1, _sde_debug_bus_ppb1_dump },
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 50, 1, 0, 1, _sde_debug_bus_ppb1_dump },
- 
- 	/* crossbar */
+
+	/* crossbar */
 	{ DBGBUS_DSPP, DBGBUS_DSPP_STATUS, 0, 1, 0, 1, _sde_debug_bus_xbar_dump },
  
  	/* blend */
@@ -480,6 +480,7 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 		char *base_addr, char *addr, size_t len_bytes, u32 **dump_mem)
 {
 	u32 in_log, in_mem, len_align, len_padded;
+	struct sde_dbg_base *dbg_base = &sde_dbg_base;
 	u32 *dump_addr = NULL;
 	char *end_addr;
 	int i;
@@ -495,6 +496,9 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 	pr_debug("%s: reg_dump_flag=%d in_log=%d in_mem=%d\n",
 		dump_name, reg_dump_flag, in_log, in_mem);
 
+	if (!dbg_base->reg_dump_addr)
+		in_mem = 0;
+
 	if (!in_log && !in_mem)
 		return;
 
@@ -502,8 +506,9 @@ static void _sde_dump_reg(const char *dump_name, u32 reg_dump_flag,
 	len_padded = len_align * REG_DUMP_ALIGN;
 	end_addr = addr + len_bytes;
 
-	if (in_mem && !(*dump_mem))
-		*dump_mem = devm_kzalloc(sde_dbg_base.dev, len_padded, GFP_KERNEL);
+	*dump_mem = dbg_base->reg_dump_addr;
+	dbg_base->reg_dump_addr += len_padded;
+
 	dump_addr = *dump_mem;
 	SDE_DBG_LOG_DUMP_ADDR(dump_name, dump_addr, len_padded, (unsigned long)(addr - base_addr));
 
@@ -680,12 +685,15 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 				addr, range_node->offset.start,
 				range_node->offset.end);
 
-			scnprintf(dbg_base->reg_dump_addr, REG_BASE_NAME_LEN,
-					dbg->name);
-			dbg_base->reg_dump_addr += REG_BASE_NAME_LEN;
-			scnprintf(dbg_base->reg_dump_addr, RANGE_NAME_LEN,
-					range_node->range_name);
-			dbg_base->reg_dump_addr += RANGE_NAME_LEN;
+			if (dbg_base->reg_dump_addr) {
+				scnprintf(dbg_base->reg_dump_addr, REG_BASE_NAME_LEN,
+						dbg->name);
+				dbg_base->reg_dump_addr += REG_BASE_NAME_LEN;
+				scnprintf(dbg_base->reg_dump_addr, RANGE_NAME_LEN,
+						range_node->range_name);
+				dbg_base->reg_dump_addr += RANGE_NAME_LEN;
+			}
+
 			_sde_dump_reg(range_node->range_name, reg_dump_flag,
 					dbg->base, addr, len,
 					&range_node->reg_dump);
@@ -697,10 +705,13 @@ static void _sde_dump_reg_by_ranges(struct sde_dbg_reg_base *dbg,
 		SDE_DBG_LOG_DUMP_ADDR("base", dbg->base, dbg->max_offset, 0);
 		addr = dbg->base;
 		len = dbg->max_offset;
-		scnprintf(dbg_base->reg_dump_addr, REG_BASE_NAME_LEN,
-				dbg->name);
-		dbg_base->reg_dump_addr += REG_BASE_NAME_LEN;
-		dbg_base->reg_dump_addr += RANGE_NAME_LEN;
+		if (dbg_base->reg_dump_addr) {
+			scnprintf(dbg_base->reg_dump_addr, REG_BASE_NAME_LEN,
+					dbg->name);
+			dbg_base->reg_dump_addr += REG_BASE_NAME_LEN;
+			dbg_base->reg_dump_addr += RANGE_NAME_LEN;
+		}
+
 		_sde_dump_reg(dbg->name, reg_dump_flag, dbg->base, addr, len,
 				&dbg->reg_dump);
 	}
@@ -795,20 +806,21 @@ static u32 _sde_dbg_dsi_read_test_point(void __iomem *mem_base, u32 wr_addr, u32
 			u32 block_id, u32 test_id)
 {
 	u32 val = (((block_id & 0x3) << 12) | ((test_id & 0x3f) << 4) | BIT(0));
- 
+
 	return _sde_dbg_cmn_read_test_point(mem_base, wr_addr, rd_addr, val);
 }
+
 static void _sde_dbg_vbif_disable_block(void __iomem *mem_base, u32 wr_addr)
 {
 	u32 disable_addr;
- 
+
 	/* make sure that other bus is off */
 	disable_addr = (wr_addr == MMSS_VBIF_TEST_BUS1_CTRL0) ?
 			MMSS_VBIF_TEST_BUS2_CTRL0 : MMSS_VBIF_TEST_BUS1_CTRL0;
 	writel_relaxed(0, mem_base + disable_addr);
 	writel_relaxed(BIT(0), mem_base + MMSS_VBIF_TEST_BUS_OUT_CTRL);
 }
- 
+
 static u32 _sde_dbg_vbif_read_test_point(void __iomem *mem_base, u32 wr_addr, u32 rd_addr,
 			u32 block_id, u32 test_id)
 {
@@ -817,13 +829,13 @@ static u32 _sde_dbg_vbif_read_test_point(void __iomem *mem_base, u32 wr_addr, u3
 	wmb(); /* make sure debug-bus test point is enabled */
 	return readl_relaxed(mem_base + rd_addr);
 }
- 
+
 static void _sde_dbg_vbif_clear_test_point(void __iomem *mem_base, u32 wr_addr)
 {
 	writel_relaxed(0, mem_base + wr_addr);
 	writel_relaxed(0, mem_base + wr_addr + 0x4);
 }
- 
+
 static u32 _sde_dbg_sde_read_test_point(void __iomem *mem_base, u32 wr_addr, u32 rd_addr,
 			u32 block_id, u32 test_id)
 {
@@ -831,22 +843,22 @@ static u32 _sde_dbg_sde_read_test_point(void __iomem *mem_base, u32 wr_addr, u32
 		writel_relaxed(TEST_EXT_MASK(block_id, test_id), mem_base + wr_addr);
 	else
 		writel_relaxed(TEST_MASK(block_id, test_id), mem_base + wr_addr);
- 
+
 	/* keep DSPP test point enabled */
 	if (wr_addr != DBGBUS_DSPP)
 		writel_relaxed(DSPP_DEBUGBUS_CTRL_EN, mem_base + DBGBUS_DSPP);
 	wmb(); /* make sure test bits were written */
- 
+
 	return readl_relaxed(mem_base + rd_addr);
 }
- 
+
 static void _sde_dbg_sde_clear_test_point(void __iomem *mem_base, u32 wr_addr)
 {
 	writel_relaxed(0x0, mem_base + wr_addr);
 	if (wr_addr != DBGBUS_DSPP)
 		writel_relaxed(0x0, mem_base + DBGBUS_DSPP);
 }
- 
+
 static void _sde_dbg_dump_vbif_err_info(void __iomem *mem_base)
 {
  	u32 value, d0, d1;
@@ -856,8 +868,8 @@ static void _sde_dbg_dump_vbif_err_info(void __iomem *mem_base)
  	value = readl_relaxed(mem_base + MMSS_VBIF_CLKON);
  	writel_relaxed(value | BIT(1), mem_base + MMSS_VBIF_CLKON);
 	wmb(); /* make sure that vbif core is on */
- 
-	/**
+
+	/*
 	 * Extract VBIF error info based on XIN halt and error status.
 	 * If the XIN client is not in HALT state, or an error is detected,
 	 * then retrieve the VBIF error info for it.
@@ -937,6 +949,7 @@ static void _sde_dbg_dump_bus_entry(struct sde_dbg_sde_debug_bus *bus,
 				if (!entry->analyzer && (in_log || (in_log_limited &&
 					    _is_dbg_bus_limited_valid(bus, entry->wr_addr, i, j))))
 					SDE_DBG_LOG_ENTRY(0, entry->wr_addr, i, j, status);
+
 				if (dump_addr && in_mem) {
 					*dump_addr++ = entry->wr_addr;
 					*dump_addr++ = i;
@@ -964,6 +977,9 @@ static void _sde_dbg_dump_sde_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 	struct sde_debug_bus_entry *entries;
 	u32 bus_size;
 	char name[20];
+
+	if (!bus || !bus->cmn.entries_size)
+		return;
 
 	reg_base = _sde_dump_get_blk_addr(bus->cmn.name);
 	if (!reg_base || !reg_base->base) {
@@ -995,9 +1011,13 @@ static void _sde_dbg_dump_sde_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 
 	in_mem = (bus->cmn.enable_mask & SDE_DBG_DUMP_IN_MEM);
 	if (in_mem && (!(*dump_mem))) {
-		*dump_mem = devm_kzalloc(sde_dbg_base.dev, list_size, GFP_KERNEL);
+		*dump_mem = vzalloc(list_size);
 		bus->cmn.content_size = list_size / sizeof(u32);
 	}
+
+	if (sde_mini_dump_add_region(bus->cmn.name, list_size, *dump_mem) < 0)
+		pr_err("minidump add %s failed\n", bus->cmn.name);
+
 	dump_addr = *dump_mem;
 	SDE_DBG_LOG_DUMP_ADDR(bus->cmn.name, dump_addr, list_size, 0);
 
@@ -1011,7 +1031,8 @@ static void _sde_dbg_dump_dsi_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 	struct sde_dbg_dsi_ctrl_list_entry *ctl_entry;
 	struct list_head *list;
 	int list_size = 0;
-	bool in_mem, i, dsi_count = 0;
+	bool in_mem;
+	int i, dsi_count = 0;
 	u32 **dump_mem = NULL;
 	u32 *dump_addr = NULL;
 	struct sde_debug_bus_entry *entries;
@@ -1038,15 +1059,21 @@ static void _sde_dbg_dump_dsi_dbg_bus(struct sde_dbg_sde_debug_bus *bus)
 	mutex_lock(&sde_dbg_dsi_mutex);
 	in_mem = (bus->cmn.enable_mask & SDE_DBG_DUMP_IN_MEM);
 	if (in_mem && (!(*dump_mem))) {
-		*dump_mem = devm_kzalloc(sde_dbg_base.dev, list_size, GFP_KERNEL);
+		*dump_mem = vzalloc(list_size);
 		bus->cmn.content_size = list_size / sizeof(u32);
 	}
+
+	if (sde_mini_dump_add_region(bus->cmn.name, list_size, *dump_mem) < 0)
+		pr_err("minidump add %s failed\n", bus->cmn.name);
+
 	dump_addr = *dump_mem;
 
 	list_for_each_entry(ctl_entry, &sde_dbg_dsi_list, list) {
 		SDE_DBG_LOG_DUMP_ADDR(ctl_entry->name, dump_addr, list_size / dsi_count, 0);
 
 		_sde_dbg_dump_bus_entry(bus, entries, bus_size, ctl_entry->base, dump_addr);
+		if (dump_addr)
+			dump_addr += list_size / (sizeof(u32) * dsi_count);
 	}
 	mutex_unlock(&sde_dbg_dsi_mutex);
 
@@ -1071,15 +1098,19 @@ static void _sde_dump_array(struct sde_dbg_reg_base *blk_arr[],
 	bool dump_secure)
 {
 	int i, rc;
-	ktime_t start, end;
 	u32 reg_dump_size;
 	struct sde_dbg_base *dbg_base = &sde_dbg_base;
+	ktime_t start, end;
 
 	mutex_lock(&sde_dbg_base.mutex);
 
 	reg_dump_size =  _sde_dbg_get_reg_dump_size();
 	dbg_base->reg_dump_addr = devm_kzalloc(sde_dbg_base.dev,
 			reg_dump_size, GFP_KERNEL);
+
+	if (!dbg_base->reg_dump_addr)
+		pr_err("Failed to allocate memory for reg_dump_addr size:%d\n",
+				reg_dump_size);
 
 	if (dbg_base->reg_dump_addr &&
 			sde_mini_dump_add_region("reg_dump",
@@ -1660,7 +1691,7 @@ static ssize_t sde_recovery_regdump_read(struct file *file, char __user *ubuf,
 
 	if (!rbuf->dump_done && !rbuf->cur_blk) {
 		if (!rbuf->buf)
-			rbuf->buf = kzalloc(DUMP_BUF_SIZE, GFP_KERNEL);
+			rbuf->buf = vzalloc(DUMP_BUF_SIZE);
 		if (!rbuf->buf) {
 			len =  -ENOMEM;
 			goto err;
@@ -2375,7 +2406,8 @@ void sde_dbg_init_dbg_buses(u32 hwversion)
 	if (SDE_HW_REV_MAJOR(hwversion) >= 0x7) {
 		dbg->dbgbus_lutdma.entries = dbg_bus_lutdma;
 		dbg->dbgbus_lutdma.cmn.name = DBGBUS_NAME_LUTDMA;
-		dbg->dbgbus_lutdma.cmn.entries_size = ARRAY_SIZE(dbg_bus_lutdma);
+		dbg->dbgbus_lutdma.cmn.entries_size =
+				ARRAY_SIZE(dbg_bus_lutdma);
 		dbg->dbgbus_lutdma.cmn.enable_mask = DEFAULT_DBGBUS_LUTDMA;
 		dbg->dbgbus_lutdma.cmn.include_in_deferred_work = true;
 		dbg->dbgbus_lutdma.read_tp = _sde_dbg_lutdma_read_test_point;

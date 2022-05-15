@@ -22,13 +22,11 @@
  */
 #include "sched.h"
 
-
 #ifdef CONFIG_SEC_PERF_MANAGER
 #include <linux/cpufreq.h>
 #include <linux/percpu.h>
 #include <trace/events/power.h>
 #endif
-
 
 #include <trace/events/sched.h>
 #include <trace/hooks/sched.h>
@@ -2970,7 +2968,7 @@ void reweight_task(struct task_struct *p, int prio)
  *
  *                     tg->weight * grq->load.weight
  *   ge->load.weight = -----------------------------               (1)
- *			  \Sum grq->load.weight
+ *                       \Sum grq->load.weight
  *
  * Now, because computing that sum is prohibitively expensive to compute (been
  * there, done that) we approximate it with this average stuff. The average
@@ -2984,7 +2982,7 @@ void reweight_task(struct task_struct *p, int prio)
  *
  *                     tg->weight * grq->avg.load_avg
  *   ge->load.weight = ------------------------------              (3)
- *				tg->load_avg
+ *                             tg->load_avg
  *
  * Where: tg->load_avg ~= \Sum grq->avg.load_avg
  *
@@ -3000,7 +2998,7 @@ void reweight_task(struct task_struct *p, int prio)
  *
  *                     tg->weight * grq->load.weight
  *   ge->load.weight = ----------------------------- = tg->weight   (4)
- *			    grp->load.weight
+ *                         grp->load.weight
  *
  * That is, the sum collapses because all other CPUs are idle; the UP scenario.
  *
@@ -3019,7 +3017,7 @@ void reweight_task(struct task_struct *p, int prio)
  *
  *                     tg->weight * grq->load.weight
  *   ge->load.weight = -----------------------------		   (6)
- *				tg_load_avg'
+ *                             tg_load_avg'
  *
  * Where:
  *
@@ -4029,7 +4027,7 @@ static inline void update_misfit_status(struct task_struct *p, struct rq *rq)
 	if (!static_branch_unlikely(&sched_asym_cpucapacity))
 		return;
 
-	if (!p) {
+	if (!p || p->nr_cpus_allowed == 1) {
 		rq->misfit_task_load = 0;
 		return;
 	}
@@ -5020,7 +5018,7 @@ static const u64 cfs_bandwidth_slack_period = 5 * NSEC_PER_MSEC;
 static int runtime_refresh_within(struct cfs_bandwidth *cfs_b, u64 min_expire)
 {
 	struct hrtimer *refresh_timer = &cfs_b->period_timer;
-	u64 remaining;
+	s64 remaining;
 
 	/* if the call-back is running a quota refresh is already occurring */
 	if (hrtimer_callback_running(refresh_timer))
@@ -5028,7 +5026,7 @@ static int runtime_refresh_within(struct cfs_bandwidth *cfs_b, u64 min_expire)
 
 	/* is a quota refresh about to occur? */
 	remaining = ktime_to_ns(hrtimer_expires_remaining(refresh_timer));
-	if (remaining < min_expire)
+	if (remaining < (s64)min_expire)
 		return 1;
 
 	return 0;
@@ -5534,25 +5532,28 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	util_est_enqueue(&rq->cfs, p);
 
 #ifdef CONFIG_SEC_PERF_MANAGER
-	if ( p->drawing_flag ){
+	if (p->drawing_flag) {
 		alloc_cpu = cpu_of(rq);
-		
+
 		/* Get current value from run queue */
 		boosted_cnt = per_cpu(fps_boosted_task_count, alloc_cpu);
 		cur_group_id = per_cpu(fps_group_id, alloc_cpu);
 		next_group_id = p->drawing_flag;
 
 		/* Get new values. */
-		if ( boosted_cnt < 0) boosted_cnt = 0;
+		if (boosted_cnt < 0)
+			boosted_cnt = 0;
+
 		boosted_cnt = boosted_cnt + 1;
 		next_fps_boosted_util = get_max_fps_util(p->drawing_flag);
 
 		/* Put new values into run queue. */
 		per_cpu(fps_boosted_task_count, alloc_cpu) = boosted_cnt;
-		if (cur_group_id == next_group_id){
+		if (cur_group_id == next_group_id) {
 			per_cpu(fps_boosted_util, alloc_cpu) = next_fps_boosted_util;
-		}else {
-			per_cpu(fps_boosted_util, alloc_cpu) = max(get_max_fps_util(cur_group_id), next_fps_boosted_util);
+		} else {
+			per_cpu(fps_boosted_util, alloc_cpu) =
+				max(get_max_fps_util(cur_group_id), next_fps_boosted_util);
 			per_cpu(fps_group_id, alloc_cpu) = next_group_id;
 		}
 	}
@@ -5670,26 +5671,26 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	int boosted_cnt;
 	struct task_struct *rq_task;
 
-	if ( p->drawing_flag ){
+	if (p->drawing_flag) {
 		alloc_cpu = cpu_of(rq);
 		boosted_cnt = per_cpu(fps_boosted_task_count, alloc_cpu);
 		cur_group_id = per_cpu(fps_group_id, alloc_cpu);
 		next_group_id = p->drawing_flag;
 
-		if (boosted_cnt > 0){
+		if (boosted_cnt > 0)
 			boosted_cnt = boosted_cnt - 1;
-		}
 
 		/*
 		*  Initialize fps_boosted_util value when there's no task on alloc_cpu.
 		*  if not, update fps util as a current fps util.
 		*/
-		if (boosted_cnt == 0){
+		if (boosted_cnt == 0) {
 			per_cpu(fps_boosted_util, alloc_cpu) = 0;
 			per_cpu(fps_group_id, alloc_cpu) = 0;
-		}else{
+		} else {
 			list_for_each_entry(rq_task, &(rq->cfs_tasks), se.group_node) {
-				if ( rq_task != p && rq_task->drawing_flag && (get_max_fps_util(rq_task->drawing_flag) > next_fps_boosted_util) ){
+				if (rq_task != p && rq_task->drawing_flag &&
+					(get_max_fps_util(rq_task->drawing_flag) > next_fps_boosted_util)) {
 					next_fps_boosted_util = get_max_fps_util(p->drawing_flag);
 					next_group_id = rq_task->drawing_flag;
 				}
@@ -8338,6 +8339,10 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 		return 0;
 #endif
 
+	/* Disregard pcpu kthreads; they are where they need to be. */
+	if (kthread_is_per_cpu(p))
+		return 0;
+
 	if (!cpumask_test_cpu(env->dst_cpu, p->cpus_ptr)) {
 		int cpu;
 
@@ -8800,7 +8805,7 @@ static bool __update_blocked_fair(struct rq *rq, bool *done)
 		/* Propagate pending load changes to the parent, if any: */
 		se = cfs_rq->tg->se[cpu];
 		if (se && !skip_blocked_update(se))
-			update_load_avg(cfs_rq_of(se), se, 0);
+			update_load_avg(cfs_rq_of(se), se, UPDATE_TG);
 
 		/*
 		 * There can be a lot of idle CPU cgroups.  Don't let fully
@@ -11899,16 +11904,22 @@ static void propagate_entity_cfs_rq(struct sched_entity *se)
 {
 	struct cfs_rq *cfs_rq;
 
+	list_add_leaf_cfs_rq(cfs_rq_of(se));
+
 	/* Start to propagate at parent */
 	se = se->parent;
 
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
 
-		if (cfs_rq_throttled(cfs_rq))
-			break;
+		if (!cfs_rq_throttled(cfs_rq)){
+			update_load_avg(cfs_rq, se, UPDATE_TG);
+			list_add_leaf_cfs_rq(cfs_rq);
+			continue;
+		}
 
-		update_load_avg(cfs_rq, se, UPDATE_TG);
+		if (list_add_leaf_cfs_rq(cfs_rq))
+			break;
 	}
 }
 #else

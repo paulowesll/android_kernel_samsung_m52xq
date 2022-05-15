@@ -40,6 +40,12 @@ static DEFINE_MUTEX(active_csiphy_cnt_mutex);
 static int csiphy_dump;
 module_param(csiphy_dump, int, 0644);
 
+static int csiphy_onthego_reg_count;
+static unsigned int csiphy_onthego_regs[150];
+module_param_array(csiphy_onthego_regs, uint, &csiphy_onthego_reg_count, 0644);
+MODULE_PARM_DESC(csiphy_onthego_regs, "Functionality to let csiphy registers program on the fly");
+
+
 struct g_csiphy_data {
 	void __iomem *base_address;
 	uint8_t is_3phase;
@@ -162,6 +168,12 @@ static void csiphy_prgm_cmn_data(
 	for (csiphy_idx = 0; csiphy_idx < MAX_CSIPHY; csiphy_idx++) {
 		csiphybase = g_phy_data[csiphy_idx].base_address;
 		is_3phase = g_phy_data[csiphy_idx].is_3phase;
+
+		if (!csiphybase) {
+			CAM_DBG(CAM_CSIPHY, "CSIPHY: %d is not available in platform",
+				csiphy_idx);
+			continue;
+		}
 
 		for (i = 0; i < size; i++) {
 			csiphy_common_reg = &csiphy_dev->ctrl_reg->csiphy_common_reg[i];
@@ -731,7 +743,7 @@ static void cam_csiphy_cphy_overwrite_config(
 				}
 #endif
 
-#if defined(CONFIG_SEC_R9Q_PROJECT)
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
 		int wide_tunning_addr[] = { 0x98C, 0xA8C, 0xB8C,
 					0x9B4, 0xAB4, 0xBB4,
 					0x16C, 0x36C, 0x56C };
@@ -1266,6 +1278,9 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 		(struct csiphy_device *)phy_dev;
 	struct cam_control   *cmd = (struct cam_control *)arg;
 	int32_t              rc = 0;
+	void __iomem         *csiphybase;
+	uint32_t             i;
+	struct cam_hw_soc_info *soc_info;	
 
 	if (!csiphy_dev || !cmd) {
 		CAM_ERR(CAM_CSIPHY, "Invalid input args");
@@ -1277,6 +1292,13 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 			cmd->handle_type);
 		return -EINVAL;
 	}
+
+	soc_info = &csiphy_dev->soc_info;
+	if (!soc_info) {
+		CAM_ERR(CAM_CSIPHY, "Null Soc_info");
+		return -EINVAL;
+	}
+	csiphybase = soc_info->reg_map[0].mem_base;	
 
 	CAM_DBG(CAM_CSIPHY, "Opcode received: %d", cmd->op_code);
 	mutex_lock(&csiphy_dev->mutex);
@@ -1734,6 +1756,31 @@ int32_t cam_csiphy_core_cfg(void *phy_dev,
 			active_csiphy_hw_cnt++;
 			mutex_unlock(&active_csiphy_cnt_mutex);
 		}
+
+		if (csiphy_onthego_reg_count) {
+			CAM_DBG(CAM_CSIPHY, "csiphy_onthego_reg_count: %d",
+				csiphy_onthego_reg_count);
+
+			if (csiphy_onthego_reg_count % 3)
+				csiphy_onthego_reg_count -= (csiphy_onthego_reg_count % 3);
+
+			for (i = 0; i < csiphy_onthego_reg_count; i += 3) {
+				cam_io_w_mb(csiphy_onthego_regs[i+1],
+					csiphybase + csiphy_onthego_regs[i]);
+
+				if (csiphy_onthego_regs[i+2])
+					usleep_range(csiphy_onthego_regs[i+2],
+						csiphy_onthego_regs[i+2] + 5);
+
+				CAM_INFO(CAM_CSIPHY, "Offset: 0x%x, Val: 0x%x Delay(us): %u",
+					csiphy_onthego_regs[i],
+					cam_io_r_mb(csiphybase + csiphy_onthego_regs[i]),
+					csiphy_onthego_regs[i+2]);
+			}
+		}
+
+		if (csiphy_dump == 1)
+			cam_csiphy_mem_dmp(&csiphy_dev->soc_info);		
 
 		CAM_DBG(CAM_CSIPHY, "START DEV CNT: %d",
 			csiphy_dev->start_dev_count);

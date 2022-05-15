@@ -23,20 +23,20 @@
 #include <linux/alarmtimer.h>
 #include "dbmdx-customer-def.h"
 
-#if defined(CONFIG_SND_SOC_DBMDX_COMPAT)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_COMPAT)
 #include "dbmdx-compat.h"
 #else
 #include <linux/atomic.h>
 #endif
 
-#if defined(CONFIG_DBMDX_NO_DTS_SUPPORT)
+#if IS_ENABLED(CONFIG_DBMDX_NO_DTS_SUPPORT)
 #if IS_ENABLED(CONFIG_OF)
 #undef CONFIG_OF
 #endif /* CONFIG_OF */
 #endif
 
-#if defined(CONFIG_SND_SOC_DBMDX_VA_NS_SUPPORT)
-#if !defined(DBMDX_VA_NS_SUPPORT)
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX_VA_NS_SUPPORT)
+#if (!IS_ENABLED(DBMDX_VA_NS_SUPPORT))
 #define DBMDX_VA_NS_SUPPORT		1
 #endif
 #endif
@@ -163,7 +163,7 @@
 #define DBMDX_MSLEEP_SPI_VQE_SYS_CFG_CMD	60
 #define DBMDX_MSLEEP_SPI_FINISH_BOOT_1		10
 #define DBMDX_MSLEEP_SPI_FINISH_BOOT_2		10
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 #define DBMDX_MSLEEP_SPI_WAKEUP			100
 #else
 #define DBMDX_MSLEEP_SPI_WAKEUP			50
@@ -295,7 +295,7 @@ enum dbmdx_sv_recognition_mode {
 	SV_RECOGNITION_MODE_VOICE_ENERGY = 2,
 };
 
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 enum dbmdx_okg_recognition_mode {
 	OKG_RECOGNITION_MODE_DISABLED = 0,
 	OKG_RECOGNITION_MODE_ENABLED = 1,
@@ -315,14 +315,14 @@ struct va_flags {
 	int	a_model_downloaded_to_fw;
 	int	amodel_len;
 	enum dbmdx_sv_recognition_mode sv_recognition_mode;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	int	okg_a_model_downloaded_to_fw;
 	int	okg_amodel_len;
 	bool	okg_a_model_enabled;
 	enum	dbmdx_okg_recognition_mode okg_recognition_mode;
 	u8	okg_amodel_checksum[4];
 #endif
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	const char	*va_last_loaded_asrp_params_file_name;
 	bool	va_ns_active;
 #endif
@@ -339,7 +339,7 @@ struct va_flags {
 	bool	disabling_mics_not_allowed;
 	bool	microphones_enabled;
 	int	cancel_pm_work;
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 	int	cancel_keep_alive_work;
 #endif
 	unsigned int	mode;
@@ -386,7 +386,7 @@ enum dbmdx_load_amodel_mode {
 	LOAD_AMODEL_PRIMARY = 0,
 	LOAD_AMODEL_2NDARY = 1,
 	LOAD_AMODEL_CUSTOM,
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	LOAD_AMODEL_OKG = 4,
 	LOAD_AMODEL_MAX = LOAD_AMODEL_OKG
 #else
@@ -397,7 +397,7 @@ enum dbmdx_load_amodel_mode {
 enum dbmdx_states {
 	DBMDX_IDLE = 0,
 	DBMDX_DETECTION = 1,
-#ifdef DBMDX_FW_BELOW_300
+#if IS_ENABLED(DBMDX_FW_BELOW_300)
 	DBMDX_RESERVED = 2,
 	DBMDX_BUFFERING = 3,
 #else
@@ -445,7 +445,7 @@ struct dbmdx_private {
 	struct dbmdx_platform_data		*pdata;
 	/* lock for private data */
 	struct mutex			p_lock;
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	struct wakeup_source		*ps_nosuspend_wl;
 #endif
 
@@ -496,7 +496,7 @@ struct dbmdx_private {
 	atomic_t			audio_owner;
 	struct amodel_info		primary_amodel;
 	struct amodel_info		secondary_amodel;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	struct amodel_info		okg_amodel;
 #endif
 	u8				*sbl_data;
@@ -510,7 +510,7 @@ struct dbmdx_private {
 	u32				va_cur_backlog_length;
 	u32				va_last_word_id;
 	bool				va_capture_on_detect;
-#ifdef DMBDX_OKG_AMODEL_SUPPORT
+#if IS_ENABLED(DMBDX_OKG_AMODEL_SUPPORT)
 	bool				okg_a_model_support;
 #endif
 	bool				sv_a_model_support;
@@ -518,7 +518,7 @@ struct dbmdx_private {
 	bool				mic_disabling_blocked;
 	int				va_debug_mode;
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	bool				va_ns_enabled;
 	int				va_ns_cfg_index;
 	bool				va_ns_pcm_streaming_enabled;
@@ -543,7 +543,7 @@ struct dbmdx_private {
 
 	unsigned int			num_dais;
 	struct snd_soc_dai_driver	*dais;
-	int				remote_codec_in_use;
+	int				remote_component_in_use;
 
 	u8				read_audio_buf[MAX_REQ_SIZE + 8];
 	struct snd_pcm_substream	*active_substream;
@@ -551,7 +551,7 @@ struct dbmdx_private {
 	struct delayed_work		delayed_pm_work;
 	struct workqueue_struct		*dbmdx_workq;
 
-#ifdef DBMDX_KEEP_ALIVE_TIMER
+#if IS_ENABLED(DBMDX_KEEP_ALIVE_TIMER)
 	struct alarm			keep_alive_timer;
 	int				keep_alive_timer_created;
 	int				keep_alive_timer_started;
@@ -681,7 +681,7 @@ void stream_set_position(struct snd_pcm_substream *substream,
 u32 stream_get_position(struct snd_pcm_substream *substream);
 int dbmdx_set_pcm_timer_mode(struct snd_pcm_substream *substream,
 				bool enable_timer);
-#ifndef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && IS_MODULE(CONFIG_SND_SOC_DBMDX))
 extern int (*dbmdx_init_interface)(void);
 extern void (*dbmdx_deinit_interface)(void);
 

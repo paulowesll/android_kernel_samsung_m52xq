@@ -1,5 +1,5 @@
 /*
- * Extended support for CS35L41 Amp
+ * Extended support for Cirrus Logic Smart Amplifiers
  *
  * Copyright 2017 Cirrus Logic
  *
@@ -98,6 +98,8 @@ int cirrus_amp_add(const char *mfd_suffix, struct cirrus_amp_config cfg)
 		amp->post_config = kcalloc(cfg.num_post_configs,
 					   sizeof(struct reg_sequence),
 					   GFP_KERNEL);
+
+		amp->amp_reinit = cfg.amp_reinit;
 
 		amp_group->pwr_enable |= cfg.pwr_enable;
 

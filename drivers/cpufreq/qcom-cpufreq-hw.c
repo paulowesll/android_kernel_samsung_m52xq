@@ -283,11 +283,11 @@ qcom_cpufreq_hw_target_index(struct cpufreq_policy *policy,
 	for (i = 0; i < c->sdpm_base_count && freq > policy->cur; i++)
 		writel_relaxed(freq / 1000, c->sdpm_base[i]);
 
-	writel_relaxed(index, policy->driver_data + offsets[REG_PERF_STATE]);
 #if IS_ENABLED(CONFIG_SEC_DEBUG_APPS_CLK_LOGGING)
 	sec_smem_clk_osm_add_log_cpufreq(policy->cpu,
 			policy->freq_table[index].frequency, policy->kobj.name);
 #endif
+	writel_relaxed(index, policy->driver_data + offsets[REG_PERF_STATE]);
 	arch_set_freq_scale(policy->related_cpus, freq,
 			    policy->cpuinfo.max_freq);
 

@@ -566,7 +566,7 @@ out:
 	return ret;
 }
 
-#ifdef CONFIG_PM_SLEEP
+#if IS_ENABLED(CONFIG_PM_SLEEP)
 static int dbmdx_spi_suspend(struct device *dev)
 {
 	struct chip_interface *ci = spi_get_drvdata(to_spi_device(dev));
@@ -594,7 +594,7 @@ static int dbmdx_spi_resume(struct device *dev)
 #define dbmdx_spi_resume NULL
 #endif /* CONFIG_PM_SLEEP */
 
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM)
 static int dbmdx_spi_runtime_suspend(struct device *dev)
 {
 	struct chip_interface *ci = spi_get_drvdata(to_spi_device(dev));
@@ -659,7 +659,7 @@ static const struct of_device_id dbmd_4_8_spi_of_match[] = {
 	{},
 };
 
-#ifdef CONFIG_SND_SOC_DBMDX
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX)
 MODULE_DEVICE_TABLE(of, dbmd_4_8_spi_of_match);
 #endif
 
@@ -677,7 +677,7 @@ static struct spi_driver dbmd_4_8_spi_driver = {
 		.name = "dbmd_4_8-spi",
 		.bus	= &spi_bus_type,
 		.owner = THIS_MODULE,
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 		.of_match_table = dbmd_4_8_spi_of_match,
 #endif
 		.pm = &dbmdx_spi_pm,
@@ -687,7 +687,7 @@ static struct spi_driver dbmd_4_8_spi_driver = {
 	.id_table = dbmd_4_8_spi_id,
 };
 
-#ifdef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && !IS_MODULE(CONFIG_SND_SOC_DBMDX))
 static int __init dbmd_4_8_modinit(void)
 {
 	return spi_register_driver(&dbmd_4_8_spi_driver);

@@ -21,6 +21,13 @@
 #if defined(CONFIG_LEDS_SM5714)
 #include <linux/mfd/sm/sm5714/sm5714.h>
 #endif
+#if IS_ENABLED(CONFIG_LEDS_S2MU106_FLASH)
+#include <linux/leds-s2mu106.h>
+#endif
+
+#if IS_ENABLED(CONFIG_LEDS_S2MU106_FLASH)
+extern int ext_pmic_cam_fled_ctrl(int cam_mode, int curr);
+#endif
 
 static uint default_on_timer = 2;
 module_param(default_on_timer, uint, 0644);
@@ -48,10 +55,12 @@ int cam_flash_led_prepare(struct led_trigger *trigger, int options,
 	return -EPERM;
 #endif
 	} else {
+#if !IS_ENABLED(CONFIG_LEDS_S2MU106_FLASH)
 #if IS_REACHABLE(CONFIG_LEDS_QPNP_FLASH_V2)
 		rc = qpnp_flash_led_prepare(trigger, options, max_current);
 #elif IS_REACHABLE(CONFIG_LEDS_QTI_FLASH)
 		rc = qti_flash_led_prepare(trigger, options, max_current);
+#endif
 #endif
 		if (rc) {
 			CAM_ERR(CAM_FLASH,
@@ -720,14 +729,32 @@ static int cam_flash_ops(struct cam_flash_ctrl *flash_ctrl,
 
 int cam_flash_off(struct cam_flash_ctrl *flash_ctrl)
 {
+	int rc = 0;
+
 	if (!flash_ctrl) {
 		CAM_ERR(CAM_FLASH, "Flash control Null");
 		return -EINVAL;
 	}
 	CAM_DBG(CAM_FLASH, "Flash OFF Triggered");
+
+#if IS_ENABLED(CONFIG_LEDS_S2MU106_FLASH)
+	ext_pmic_cam_fled_ctrl(CAMERA_SENSOR_FLASH_OP_OFF, 0);
+	return 0;
+#endif
+
 	if (flash_ctrl->switch_trigger)
 		cam_res_mgr_led_trigger_event(flash_ctrl->switch_trigger,
 			(enum led_brightness)LED_SWITCH_OFF);
+
+	if ((flash_ctrl->i2c_data.streamoff_settings.is_settings_valid) &&
+		(flash_ctrl->i2c_data.streamoff_settings.request_id == 0)) {
+		flash_ctrl->apply_streamoff = true;
+		rc = cam_flash_i2c_apply_setting(flash_ctrl, 0);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR,
+			"cannot apply streamoff settings");
+		}
+	}
 	return 0;
 }
 
@@ -741,6 +768,11 @@ static int cam_flash_low(
 		CAM_ERR(CAM_FLASH, "Flash Data Null");
 		return -EINVAL;
 	}
+
+#if IS_ENABLED(CONFIG_LEDS_S2MU106_FLASH)
+	ext_pmic_cam_fled_ctrl(flash_data->opcode, flash_data->led_current_ma[0]);
+	return 0;
+#endif
 
 	for (i = 0; i < flash_ctrl->flash_num_sources; i++)
 		if (flash_ctrl->flash_trigger[i])
@@ -766,6 +798,11 @@ static int cam_flash_high(
 		CAM_ERR(CAM_FLASH, "Flash Data Null");
 		return -EINVAL;
 	}
+
+#if IS_ENABLED(CONFIG_LEDS_S2MU106_FLASH)
+	ext_pmic_cam_fled_ctrl(flash_data->opcode, flash_data->led_current_ma[0]);
+	return 0;
+#endif
 
 	for (i = 0; i < flash_ctrl->torch_num_sources; i++)
 		if (flash_ctrl->torch_trigger[i])
@@ -838,6 +875,21 @@ static int cam_flash_i2c_delete_req(struct cam_flash_ctrl *fctrl,
 
 		CAM_DBG(CAM_FLASH, "top: %llu, del_req_id:%llu",
 			top, del_req_id);
+
+		for (i = 0; i < MAX_PER_FRAME_ARRAY; i++) {
+			if ((del_req_id >
+				 fctrl->i2c_data.per_frame[i].request_id) && (
+				 fctrl->i2c_data.per_frame[i].is_settings_valid
+					== 1)) {
+				fctrl->i2c_data.per_frame[i].request_id = 0;
+				rc = delete_request(
+					&(fctrl->i2c_data.per_frame[i]));
+				if (rc < 0)
+					CAM_ERR(CAM_SENSOR,
+						"Delete request Fail:%lld rc:%d",
+						del_req_id, rc);
+			}
+		}
 	}
 
 	cam_flash_i2c_flush_nrt(fctrl);
@@ -937,10 +989,25 @@ int cam_flash_i2c_apply_setting(struct cam_flash_ctrl *fctrl,
 	struct i2c_settings_list *i2c_list;
 	struct i2c_settings_array *i2c_set = NULL;
 	int frame_offset = 0, rc = 0;
-
+	CAM_DBG(CAM_FLASH, "req_id=%llu", req_id);
 	if (req_id == 0) {
 		/* NonRealTime Init settings*/
-		if (fctrl->i2c_data.init_settings.is_settings_valid == true) {
+		if (fctrl->apply_streamoff == true) {
+			fctrl->apply_streamoff = false;
+			i2c_set = &fctrl->i2c_data.streamoff_settings;
+			list_for_each_entry(i2c_list,
+				&(i2c_set->list_head),
+				list) {
+				rc = cam_sensor_util_i2c_apply_setting
+					(&(fctrl->io_master_info), i2c_list);
+				if (rc) {
+					CAM_ERR(CAM_FLASH,
+					"Failed to apply stream on settings: %d", rc);
+					return rc;
+				}
+				break;
+			}
+		} else if (fctrl->i2c_data.init_settings.is_settings_valid == true) {
 			list_for_each_entry(i2c_list,
 				&(fctrl->i2c_data.init_settings.list_head),
 				list) {
@@ -1491,6 +1558,7 @@ int cam_flash_i2c_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 		i2c_reg_settings =
 			&fctrl->i2c_data.per_frame[frm_offset];
 		if (i2c_reg_settings->is_settings_valid == true) {
+			CAM_DBG(CAM_FLASH, "settings already valid");
 			i2c_reg_settings->request_id = 0;
 			i2c_reg_settings->is_settings_valid = false;
 			goto update_req_mgr;
@@ -1505,6 +1573,16 @@ int cam_flash_i2c_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 		if (rc) {
 			CAM_ERR(CAM_FLASH,
 			"Failed in parsing i2c packets");
+			return rc;
+		}
+		if ((fctrl->flash_state == CAM_FLASH_STATE_ACQUIRE) ||
+			(fctrl->flash_state == CAM_FLASH_STATE_CONFIG)) {
+			fctrl->flash_state = CAM_FLASH_STATE_CONFIG;
+			rc = fctrl->func_tbl.apply_setting(fctrl, 1);
+			if (rc) {
+				CAM_ERR(CAM_FLASH, "cannot apply fire settings rc = %d", rc);
+				return rc;
+			}
 			return rc;
 		}
 		break;
@@ -1545,20 +1623,47 @@ int cam_flash_i2c_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 		return rc;
 	}
 	case CAM_PKT_NOP_OPCODE: {
+		frm_offset = csl_packet->header.request_id %
+			MAX_PER_FRAME_ARRAY;
 		if ((fctrl->flash_state == CAM_FLASH_STATE_INIT) ||
 			(fctrl->flash_state == CAM_FLASH_STATE_ACQUIRE)) {
 			CAM_WARN(CAM_FLASH,
 				"Rxed NOP packets without linking");
-			frm_offset = csl_packet->header.request_id %
-				MAX_PER_FRAME_ARRAY;
 			fctrl->i2c_data.per_frame[frm_offset].is_settings_valid
 				= false;
 			return 0;
 		}
-
+		i2c_reg_settings =
+			&fctrl->i2c_data.per_frame[frm_offset];
+		i2c_reg_settings->is_settings_valid = true;
+		i2c_reg_settings->request_id =
+			csl_packet->header.request_id;
 		CAM_DBG(CAM_FLASH, "NOP Packet is Received: req_id: %u",
 			csl_packet->header.request_id);
 		goto update_req_mgr;
+	}
+	case CAM_FLASH_PACKET_OPCODE_STREAM_OFF: {
+		if (fctrl->streamoff_count > 0)
+			return rc;
+
+		CAM_DBG(CAM_FLASH, "Received Stream off Settings");
+		i2c_data = &(fctrl->i2c_data);
+		fctrl->streamoff_count = fctrl->streamoff_count + 1;
+		i2c_reg_settings       = &i2c_data->streamoff_settings;
+		i2c_reg_settings->request_id = 0;
+		i2c_reg_settings->is_settings_valid = 1;
+		offset = (uint32_t *)((uint8_t *)&csl_packet->payload +
+			csl_packet->cmd_buf_offset);
+		cmd_desc = (struct cam_cmd_buf_desc *)(offset);
+		rc = cam_sensor_i2c_command_parser(&fctrl->io_master_info,
+				i2c_reg_settings,
+				cmd_desc, 1, NULL);
+		if (rc) {
+			CAM_ERR(CAM_FLASH,
+			"Failed in parsing i2c Stream off packets");
+			return rc;
+		}
+		break;
 	}
 	default:
 		CAM_ERR(CAM_FLASH, "Wrong Opcode : %d",
@@ -1708,7 +1813,6 @@ int cam_flash_pmic_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 
 		switch (cam_flash_info->cmd_type) {
 		case CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_INFO: {
-			int query_curr_ma = 0;
 			CAM_DBG(CAM_FLASH, "INIT_INFO CMD CALLED");
 			fctrl->flash_init_setting.cmn_attr.request_id = 0;
 			fctrl->flash_init_setting.cmn_attr.is_settings_valid =
@@ -1720,9 +1824,6 @@ int cam_flash_pmic_pkt_parser(struct cam_flash_ctrl *fctrl, void *arg)
 
 			fctrl->flash_state =
 				CAM_FLASH_STATE_CONFIG;
-			cam_flash_led_prepare(fctrl->switch_trigger,
-				QUERY_MAX_AVAIL_CURRENT, &query_curr_ma,
-				soc_private->is_wled_flash);
 			break;
 		}
 		case CAMERA_SENSOR_FLASH_CMD_TYPE_INIT_FIRE: {
@@ -2146,6 +2247,16 @@ int cam_flash_release_dev(struct cam_flash_ctrl *fctrl)
 	sm5714_fled_mode_ctrl(SM5714_FLED_MODE_CLOSE_FLASH, 0);
 #endif
 
+	if (fctrl->i2c_data.streamoff_settings.is_settings_valid == true) {
+		fctrl->i2c_data.streamoff_settings.is_settings_valid = false;
+		rc = delete_request(&fctrl->i2c_data.streamoff_settings);
+		if (rc) {
+			CAM_WARN(CAM_FLASH,
+				"Failed to delete Stream off i2c_setting: %d",
+				rc);
+		}
+	}
+
 	if (fctrl->bridge_intf.device_hdl != 1) {
 		rc = cam_destroy_device_hdl(fctrl->bridge_intf.device_hdl);
 		if (rc)
@@ -2156,6 +2267,7 @@ int cam_flash_release_dev(struct cam_flash_ctrl *fctrl)
 		fctrl->bridge_intf.link_hdl = -1;
 		fctrl->bridge_intf.session_hdl = -1;
 		fctrl->last_flush_req = 0;
+		fctrl->streamoff_count = 0;
 	}
 
 	return rc;

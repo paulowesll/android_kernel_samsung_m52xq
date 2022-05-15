@@ -98,9 +98,11 @@
 			SM5714_REG_INT_STATUS5_SBU2_OVP |\
 			SM5714_REG_INT_STATUS5_CC_ABNORMAL)
 
-#define SM5714_ATTACH_SOURCE			0x01
+#define SM5714_ATTACH_SOURCE				0x01
 #define SM5714_ATTACH_SINK				(0x01 << SM5714_ATTACH_SOURCE)
 #define SM5714_ATTACH_AUDIO				0x03
+#define SM5714_ATTACH_UN_ORI_DEBUG_SOURCE		(0x01 << SM5714_ATTACH_SINK)
+#define SM5714_ATTACH_ORI_DEBUG_SOURCE			0x05
 #define SM5714_ATTACH_TYPE				0x07
 #define SM5714_ADV_CURR					0x18
 #define SM5714_CABLE_FLIP				0x20
@@ -268,6 +270,7 @@ struct sm5714_phydrv_data {
 	struct mutex _mutex;
 	struct mutex poll_mutex;
 	struct mutex lpm_mutex;
+	struct mutex i2c_lock;
 	int vconn_en;
 	int irq_gpio;
 	int irq;

@@ -418,8 +418,8 @@ struct drm_connector *connector, struct sde_edid_ctrl *edid_ctrl)
 	SDE_EDID_DEBUG("%s -\n", __func__);
 }
 
-#if defined(CONFIG_SEC_DISPLAYPORT) && IS_ENABLED(CONFIG_ANDROID_SWITCH)
-struct sde_edid_ctrl *g_edid_ctrl;
+#if defined(CONFIG_SEC_DISPLAYPORT) && IS_ENABLED(CONFIG_SWITCH)
+static struct sde_edid_ctrl *g_edid_ctrl;
 
 int secdp_get_audio_ch(void)
 {
@@ -428,6 +428,7 @@ int secdp_get_audio_ch(void)
 
 	return 0;
 }
+EXPORT_SYMBOL(secdp_get_audio_ch);
 #endif
 
 static void _sde_edid_extract_audio_data_blocks(
@@ -1491,12 +1492,8 @@ void sde_get_edid(struct drm_connector *connector,
 	struct sde_edid_ctrl *edid_ctrl = (struct sde_edid_ctrl *)(*input);
 
 	edid_ctrl->edid = drm_get_edid(connector, adapter);
-	SDE_EDID_DEBUG("%s +\n", __func__);
-
-	if (!edid_ctrl->edid)
-		SDE_ERROR("EDID read failed\n");
 #if defined(CONFIG_SEC_DISPLAYPORT)
-	else {
+	if (edid_ctrl->edid) {
 		int i, num_extension = edid_ctrl->edid->extensions;
 
 		for (i = 0; i <= num_extension; i++) {
@@ -1507,12 +1504,15 @@ void sde_get_edid(struct drm_connector *connector,
 				"EDID:", EDID_LENGTH);
 		}
 	}
-
-#if IS_ENABLED(CONFIG_ANDROID_SWITCH)
+#if IS_ENABLED(CONFIG_SWITCH)
 	g_edid_ctrl = edid_ctrl;
 #endif
-
 #endif/*CONFIG_SEC_DISPLAYPORT*/
+
+	SDE_EDID_DEBUG("%s +\n", __func__);
+
+	if (!edid_ctrl->edid)
+		SDE_ERROR("EDID read failed\n");
 
 	if (edid_ctrl->edid)
 		sde_parse_edid(edid_ctrl);

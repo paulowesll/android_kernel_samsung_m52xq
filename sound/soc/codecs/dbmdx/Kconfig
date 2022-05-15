@@ -122,10 +122,3 @@ config SND_SOC_DBMD2_UART
 		.
 		.
 		.
-
-
-
-
-
-
-

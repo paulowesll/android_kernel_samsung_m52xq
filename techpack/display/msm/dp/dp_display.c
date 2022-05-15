@@ -5173,6 +5173,14 @@ static bool secdp_check_resolution(struct dp_display_private *dp,
 		goto end;
 	}
 
+#if defined(CONFIG_SEC_GTS7FEWIFI_PROJECT) && !defined(CONFIG_SEC_FACTORY)
+	if (mode->hdisplay > 2560 || mode->vdisplay > 1600 ||
+			(mode->hdisplay >= 2560 && mode->vdisplay >= 1440 && mode->vrefresh > 60)) {
+		DP_DEBUG("it exceeds max timing!\n");
+		goto end;
+	}
+#endif
+
 	if (prefer_support) {
 		/* sink's preferred resolution */
 		int mode_refresh = drm_mode_vrefresh(mode);

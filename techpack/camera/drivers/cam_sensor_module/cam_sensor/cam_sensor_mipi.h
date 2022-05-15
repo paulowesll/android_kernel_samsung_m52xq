@@ -58,6 +58,7 @@ enum {
 	UW,
 	TELE,
 	FRONT_TOP,
+	UW_DULA,
 };
 
 /* RAT */

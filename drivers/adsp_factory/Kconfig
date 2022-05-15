@@ -28,6 +28,15 @@ config LSM6DSO_FACTORY
 	  request selftest to adsp_factory.
 	  receive test result from adsp_factory.
 
+config ICM4X6XX_FACTORY
+	tristate "factory test for SSC - ICM4X6XX"
+	default n
+	help
+	  lsm6dsl factory driver.
+	  provide sysfs for factory test.
+	  request selftest to adsp_factory.
+	  receive test result from adsp_factory.
+
 config STK31610_FACTORY
 	tristate "factory test for SSC - STK31610"
 	default n

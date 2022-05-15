@@ -130,6 +130,14 @@ enum sec_nfc_coldreset{
 /*[END] COLDRESET*/
 #endif
 
+#if IS_ENABLED(CONFIG_BATTERY_SAMSUNG) && !defined(CONFIG_NFC_PVDD_LATE_ENABLE)
 extern unsigned int lpcharge;
+#endif
 #define NFC_I2C_LDO_ON  1
 #define NFC_I2C_LDO_OFF 0
+
+enum lpm_status {
+	LPM_NO_SUPPORT = -1,
+	LPM_FALSE,
+	LPM_TRUE
+};

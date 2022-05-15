@@ -11,7 +11,7 @@
 #ifndef _DBMDX_UART_COMMON_H
 #define _DBMDX_UART_COMMON_H
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 #include <linux/pm_wakeup.h>
 #endif
 
@@ -30,7 +30,7 @@ struct dbmdx_uart_private {
 	struct dbmdx_uart_data		*pdata;
 	struct device			*dev;
 	struct chip_interface		chip;
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	struct wakeup_source		*ps_nosuspend_wl;
 #endif
 	struct tty_struct		*tty;

@@ -9,6 +9,7 @@
 #include <linux/gpio.h>
 #include <linux/hrtimer.h>
 #include <linux/i2c.h>
+#include <linux/spi/spi.h>
 #include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/interrupt.h>
@@ -40,6 +41,89 @@
 
 #define SECURE_TOUCH_ENABLE	1
 #define SECURE_TOUCH_DISABLE	0
+
+#include <linux/debugfs.h>
+#include <linux/fs.h>
+#include <linux/kobject.h>
+#include <linux/sort.h>
+
+#if IS_ENABLED(CONFIG_GH_RM_DRV)
+#include <linux/gunyah/gh_msgq.h>
+#include <linux/gunyah/gh_rm_drv.h>
+#include <linux/gunyah/gh_irq_lend.h>
+#include <linux/gunyah/gh_mem_notifier.h>
+
+#define TRUSTED_TOUCH_MEM_LABEL 0x7
+enum trusted_touch_mode_config {
+	TRUSTED_TOUCH_VM_MODE,
+	TRUSTED_TOUCH_MODE_NONE
+};
+
+enum trusted_touch_pvm_states {
+	TRUSTED_TOUCH_PVM_INIT,
+	PVM_I2C_RESOURCE_ACQUIRED,
+	PVM_INTERRUPT_DISABLED,
+	PVM_IOMEM_LENT,
+	PVM_IOMEM_LENT_NOTIFIED,
+	PVM_IRQ_LENT,
+	PVM_IRQ_LENT_NOTIFIED,
+	PVM_IOMEM_RELEASE_NOTIFIED,
+	PVM_IRQ_RELEASE_NOTIFIED,
+	PVM_ALL_RESOURCES_RELEASE_NOTIFIED,
+	PVM_IRQ_RECLAIMED,
+	PVM_IOMEM_RECLAIMED,
+	PVM_INTERRUPT_ENABLED,
+	PVM_I2C_RESOURCE_RELEASED,
+	TRUSTED_TOUCH_PVM_STATE_MAX
+};
+
+enum trusted_touch_tvm_states {
+	TRUSTED_TOUCH_TVM_INIT,
+	TVM_IOMEM_LENT_NOTIFIED,
+	TVM_IRQ_LENT_NOTIFIED,
+	TVM_ALL_RESOURCES_LENT_NOTIFIED,
+	TVM_IOMEM_ACCEPTED,
+	TVM_I2C_SESSION_ACQUIRED,
+	TVM_IRQ_ACCEPTED,
+	TVM_INTERRUPT_ENABLED,
+	TVM_INTERRUPT_DISABLED,
+	TVM_IRQ_RELEASED,
+	TVM_I2C_SESSION_RELEASED,
+	TVM_IOMEM_RELEASED,
+	TRUSTED_TOUCH_TVM_STATE_MAX
+};
+
+#define TOUCH_INTR_GPIO_BASE 0xF12E000
+#define TOUCH_INTR_GPIO_SIZE 0x1000
+#define TOUCH_INTR_GPIO_OFFSET 0x8
+
+#define TRUSTED_TOUCH_EVENT_LEND_FAILURE -1
+#define TRUSTED_TOUCH_EVENT_LEND_NOTIFICATION_FAILURE -2
+#define TRUSTED_TOUCH_EVENT_ACCEPT_FAILURE -3
+#define TRUSTED_TOUCH_EVENT_FUNCTIONAL_FAILURE -4
+#define TRUSTED_TOUCH_EVENT_RELEASE_FAILURE -5
+#define TRUSTED_TOUCH_EVENT_RECLAIM_FAILURE -6
+#define TRUSTED_TOUCH_EVENT_I2C_FAILURE -7
+#define TRUSTED_TOUCH_EVENT_NOTIFICATIONS_PENDING 5
+
+struct trusted_touch_vm_info {
+	enum gh_irq_label irq_label;
+	enum gh_mem_notifier_tag mem_tag;
+	enum gh_vm_names vm_name;
+	const char *trusted_touch_type;
+	u32 hw_irq;
+	gh_memparcel_handle_t vm_mem_handle;
+	u32 *iomem_bases;
+	u32 *iomem_sizes;
+	u32 iomem_list_size;
+	void *mem_cookie;
+	atomic_t vm_state;
+};
+#endif
+#endif
+
+#if IS_ENABLED(CONFIG_VBUS_NOTIFIER)
+#include <linux/vbus_notifier.h>
 #endif
 
 #include "../sec_tclm_v2.h"
@@ -64,6 +148,7 @@ extern struct tsp_dump_callbacks dump_callbacks;
 #define USE_OPEN_CLOSE
 
 #define STM_TS_I2C_NAME		"stm_ts"
+#define STM_TS_SPI_NAME		"stm_ts_spi"
 #define STM_TS_DEVICE_NAME	"STM_TS"
 
 enum stm_ts_error_return {
@@ -86,6 +171,12 @@ enum stm_ts_fw_update_status {
 	STM_TS_NEED_FW_UPDATE,
 	STM_TS_NEED_CALIBRATION_ONLY,
 	STM_TS_NEED_FW_UPDATE_N_CALIBRATION,
+};
+
+enum stm_ts_active_mode_status {
+	STM_TS_ACTIVE_FALSE = 0,
+	STM_TS_ACTIVE_TRUE,
+	STM_TS_ACTIVE_FALSE_SNR,
 };
 
 extern struct device *ptsp;
@@ -344,6 +435,23 @@ enum stm_ts_nvm_data_type {		/* Write Command */
 	STM_TS_NVM_OFFSET_CAL_FAIL_COUNT,
 };
 
+enum {
+	LCD_EARLY_EVENT = 0,
+	LCD_LATE_EVENT
+};
+
+enum {
+	SERVICE_SHUTDOWN = -1,
+	LCD_NONE = 0,
+	LCD_OFF,
+	LCD_ON,
+	LCD_DOZE1,
+	LCD_DOZE2,
+	LPM_OFF = 20,
+	FORCE_OFF,
+	FORCE_ON,
+};
+
 struct stm_ts_nvm_data_map {
 	int type;
 	int offset;
@@ -380,14 +488,13 @@ struct stm_ts_snr_result {
 #define STM_TS_NVM_OFFSET_ALL	31
 
 struct stm_ts_data {
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_STM_SPI)
+	struct spi_device *client;
+#else
 	struct i2c_client *client;
-
+#endif
 	int irq;
 	struct sec_ts_plat_data *plat_data;
-#ifdef STM_TS_SUPPORT_TA_MODE
-	void (*register_cb)(void *);
-	struct stm_ts_callbacks callbacks;
-#endif
 	struct mutex lock;
 	bool probe_done;
 	struct sec_cmd_data sec;
@@ -395,7 +502,6 @@ struct stm_ts_data {
 	int rx_count;
 
 	short *pFrame;
-	u8 miscal_result;
 	u8 *cx_data;
 	u8 *ito_result;
 	struct stm_ts_test_result test_result;
@@ -421,10 +527,23 @@ struct stm_ts_data {
 	atomic_t secure_pending_irqs;
 	struct completion secure_powerdown;
 	struct completion secure_interrupt;
-#endif
 
-#ifdef STM_TS_SUPPORT_TA_MODE
-	bool TA_Pluged;
+#if IS_ENABLED(CONFIG_GH_RM_DRV)
+	struct trusted_touch_vm_info *vm_info;
+	struct mutex clk_io_ctrl_mutex;
+	struct mutex transition_lock;
+	const char *touch_environment;
+	struct completion trusted_touch_powerdown;
+	struct clk *core_clk;
+	struct clk *iface_clk;
+	atomic_t trusted_touch_initialized;
+	atomic_t trusted_touch_enabled;
+	atomic_t trusted_touch_transition;
+	atomic_t trusted_touch_event;
+	atomic_t trusted_touch_abort_status;
+	atomic_t delayed_vm_probe_pending;
+	atomic_t trusted_touch_mode;
+#endif
 #endif
 
 	int fw_version_of_ic;			/* firmware version of IC */
@@ -440,7 +559,11 @@ struct stm_ts_data {
 	u8 module_version_of_ic;
 	u8 module_version_of_bin;
 	int panel_revision;			/* Octa panel revision */
-	
+	u32 chip_id;
+
+#if IS_ENABLED(CONFIG_VBUS_NOTIFIER)
+	struct notifier_block vbus_nb;
+#endif	
 	struct notifier_block stm_input_nb;
 	struct delayed_work work_print_info;
 	struct delayed_work work_read_functions;
@@ -452,12 +575,13 @@ struct stm_ts_data {
 	volatile bool reset_is_on_going;
 
 	int debug_flag;
-	struct mutex i2c_mutex;
+	struct mutex read_write_mutex;
 	struct mutex device_mutex;
 	struct mutex eventlock;
 	struct mutex sponge_mutex;
 	struct mutex fn_mutex;
 	struct mutex modechange;
+	bool info_work_done;
 
 	u8 factory_position;
 	int proc_cmoffset_size;
@@ -494,6 +618,22 @@ struct stm_ts_data {
 	bool touch_aging_mode;
 	int sensitivity_mode;
 
+	int raw_irq_count;
+	int before_irq_count;
+	u8 raw_addr_h;
+	u8 raw_addr_l;
+	u8 raw_mode;
+	int raw_len;
+	u8 *raw_u8;//read from IC
+	s16 *raw;//convert x/y
+	u8 *raw_v0;//mmap0 ...
+	u8 *raw_v1;
+	u8 *raw_v2;
+	u8 *raw_v3;
+	u8 *raw_v4;
+	short *mmapdata;
+	struct mutex raw_lock;
+
 	bool rawcap_lock;
 	int rawcap_max;
 	int rawcap_max_tx;
@@ -505,8 +645,8 @@ struct stm_ts_data {
 	int (*stop_device)(struct stm_ts_data *ts);
 	int (*start_device)(struct stm_ts_data *ts);
 
-	int (*stm_ts_i2c_write)(struct stm_ts_data *ts, u8 *reg, int cunum, u8 *data, int len);
-	int (*stm_ts_i2c_read)(struct stm_ts_data *ts, u8 *reg, int cnum, u8 *data, int len);
+	int (*stm_ts_write)(struct stm_ts_data *ts, u8 *reg, int cunum, u8 *data, int len);
+	int (*stm_ts_read)(struct stm_ts_data *ts, u8 *reg, int cnum, u8 *data, int len);
 	int (*stm_ts_read_sponge)(struct stm_ts_data *ts, u8 *data, int length);
 	int (*stm_ts_write_sponge)(struct stm_ts_data *ts, u8 *data, int length);
 	int (*stm_ts_systemreset)(struct stm_ts_data *ts, unsigned int msec);
@@ -518,6 +658,24 @@ struct stm_ts_data {
 int stm_ts_stop_device(void *data);
 int stm_ts_start_device(void *data);
 irqreturn_t stm_ts_irq_thread(int irq, void *ptr);
+int stm_ts_probe(struct stm_ts_data *ts);
+int stm_ts_remove(struct stm_ts_data *ts);
+void stm_ts_shutdown(struct stm_ts_data *ts);
+int stm_ts_pm_suspend(struct stm_ts_data *ts);
+int stm_ts_pm_resume(struct stm_ts_data *ts);
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_STM_SPI)
+void stm_ts_set_spi_mode(struct stm_ts_data *ts);
+#endif
+
+//i2c or spi
+int stm_ts_wire_mode_change(struct stm_ts_data *ts, u8 *reg);
+int stm_tclm_data_read(struct stm_ts_data *ts, int address);
+int stm_tclm_data_write(struct stm_ts_data *ts, int address);
+int stm_ts_tool_proc_init(struct stm_ts_data *ts);
+int stm_ts_tool_proc_remove(void);
+int stm_pm_runtime_get_sync(struct stm_ts_data *ts);
+void stm_pm_runtime_put_sync(struct stm_ts_data *ts);
+
 
 void stm_ts_reinit(void *data);
 int stm_ts_execute_autotune(struct stm_ts_data *ts, bool IsSaving);
@@ -526,7 +684,7 @@ void stm_ts_release_all_finger(struct stm_ts_data *ts);
 void stm_ts_locked_release_all_finger(struct stm_ts_data *ts);
 
 int stm_ts_set_external_noise_mode(struct stm_ts_data *ts, u8 mode);
-int stm_ts_fix_active_mode(struct stm_ts_data *ts, bool enable);
+int stm_ts_fix_active_mode(struct stm_ts_data *ts, int mode);
 int stm_ts_get_version_info(struct stm_ts_data *ts);
 int stm_ts_wait_for_ready(struct stm_ts_data *ts);
 
@@ -537,8 +695,8 @@ void stm_ts_command(struct stm_ts_data *ts, u8 cmd, bool checkecho);
 void stm_set_grip_data_to_ic(struct device *dev, u8 flag);
 int stm_ts_set_temperature(struct device *dev, u8 temperature_data);
 int stm_ts_fw_corruption_check(struct stm_ts_data *ts);
-int stm_ts_read_chip_id_hw(struct stm_ts_data *ts);
-int stm_ts_read_chip_id(struct stm_ts_data *ts);
+void stm_ts_read_chip_id_hw(struct stm_ts_data *ts);
+void stm_ts_read_chip_id(struct stm_ts_data *ts);
 int stm_ts_get_version_info(struct stm_ts_data *ts);
 int stm_ts_systemreset(struct stm_ts_data *ts, unsigned int msec);
 int stm_ts_set_scanmode(struct stm_ts_data *ts, u8 scan_mode);
@@ -557,7 +715,8 @@ int stm_ts_set_fod_rect(struct stm_ts_data *ts);
 int stm_ts_set_touchable_area(struct stm_ts_data *ts);
 int stm_ts_ear_detect_enable(struct stm_ts_data *ts, u8 enable);
 int stm_ts_pocket_mode_enable(struct stm_ts_data *ts, u8 enable);
-int stm_ts_set_charger_mode(struct stm_ts_data *ts);
+int stm_ts_set_wirelesscharger_mode(struct stm_ts_data *ts);
+int stm_ts_set_wirecharger_mode(struct stm_ts_data *ts);
 void stm_ts_set_cover_type(struct stm_ts_data *ts, bool enable);
 int stm_ts_set_press_property(struct stm_ts_data *ts);
 int stm_ts_get_sysinfo_data(struct stm_ts_data *ts, u8 sysinfo_addr, u8 read_cnt, u8 *data);
@@ -571,8 +730,17 @@ int stm_ts_get_channel_info(struct stm_ts_data *ts);
 int stm_ts_set_opmode(struct stm_ts_data *ts, u8 mode);
 int stm_ts_set_touch_function(struct stm_ts_data *ts);
 void stm_ts_get_touch_function(struct work_struct *work);
-int stm_tclm_data_read(struct i2c_client *client, int address);
-int stm_tclm_data_write(struct i2c_client *client, int address);
+int _stm_tclm_data_read(struct stm_ts_data *ts, int address);
+int _stm_tclm_data_write(struct stm_ts_data *ts, int address);
+int stm_ts_set_hsync_scanmode(struct stm_ts_data *ts, u8 scan_mode);
+int stm_ts_fod_vi_event(struct stm_ts_data *ts);
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+void stm_ts_interrupt_notify(struct work_struct *work);
+#endif
+#if IS_ENABLED(CONFIG_VBUS_NOTIFIER)
+int stm_ts_vbus_notification(struct notifier_block *nb, unsigned long cmd, void *data);
+#endif
+
 
 //cmd
 void stm_ts_fn_remove(struct stm_ts_data *ts);
@@ -594,18 +762,19 @@ int stm_ts_fw_update_on_probe(struct stm_ts_data *ts);
 int stm_ts_fw_update_on_hidden_menu(struct stm_ts_data *ts, int update_type);
 int stm_ts_wait_for_echo_event(struct stm_ts_data *ts, u8 *cmd, u8 cmd_cnt, int delay);
 int stm_ts_fw_wait_for_event(struct stm_ts_data *ts, u8 *result, u8 result_cnt);
-int stm_ts_tclm_execute_force_calibration(struct i2c_client *client, int cal_mode);
 void stm_ts_checking_miscal(struct stm_ts_data *ts);
+
 
 #ifdef CONFIG_TOUCHSCREEN_DUMP_MODE
 extern struct tsp_dump_callbacks dump_callbacks;
 #endif
 
-#ifdef STM_TS_SUPPORT_TA_MODE
-extern struct stm_ts_callbacks *STM_TS_charger_callbacks;
-struct stm_ts_callbacks {
-	void (*inform_charger)(struct STM_TS_callbacks *, int);
-};
+#if IS_ENABLED(CONFIG_INPUT_SEC_SECURE_TOUCH)
+#if IS_ENABLED(CONFIG_GH_RM_DRV)
+#if !IS_ENABLED(CONFIG_ARCH_QTI_VM)
+void stm_ts_trusted_touch_tvm_i2c_failure_report(struct stm_ts_data *ts);
+#endif
+#endif
 #endif
 
 #endif /* _LINUX_stm_ts_H_ */

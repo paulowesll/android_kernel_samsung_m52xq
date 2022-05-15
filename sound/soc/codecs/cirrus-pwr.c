@@ -1,5 +1,5 @@
 /*
- * Power-management support for Cirrus Logic CS35L41 amplifier
+ * Power-management support for Cirrus Logic Smart Amplifiers
  *
  * Copyright 2018 Cirrus Logic
  *
@@ -154,8 +154,8 @@ void cirrus_pwr_stop(const char *mfd_suffix)
 
 	if (amps_active) {
 		/* One amp still active */
-		dev_dbg(amp_group->pwr_dev, "Amp cs35l41%s deactivated\n",
-			mfd_suffix);
+		dev_dbg(amp_group->pwr_dev, "Amp %s%s deactivated\n",
+			amp->dsp_part_name, amp->mfd_suffix);
 	} else {
 		/* Exit state machine */
 		dev_dbg(amp_group->pwr_dev,
@@ -207,7 +207,8 @@ static void cirrus_pwr_work(struct work_struct *work)
 	for (i = 0; i < amp_group->num_amps; i++) {
 		amp = &amp_group->amps[i];
 
-		dev_dbg(amp_group->pwr_dev, "Amp cs35l41%s\n", amp->mfd_suffix);
+		dev_dbg(amp_group->pwr_dev, "Amp %s%s\n",
+			amp->dsp_part_name, amp->mfd_suffix);
 		dev_dbg(amp_group->pwr_dev,
 			"Spk Temp:\t%d.%d C\t(Target: %d.%d C)\n",
 			amp->pwr.spk_temp / 100,
@@ -229,8 +230,8 @@ static void cirrus_pwr_work(struct work_struct *work)
 					false);
 
 				dev_info(amp_group->pwr_dev,
-					 "Amp cs35l41%s below exit temp. Disabling PASSPORT\n",
-					 amp->mfd_suffix);
+					 "Amp %s%s below exit temp. Disabling PASSPORT\n",
+					 amp->dsp_part_name, amp->mfd_suffix);
 
 				amp->pwr.passport_enable = 0;
 			}
@@ -242,8 +243,8 @@ static void cirrus_pwr_work(struct work_struct *work)
 				cirrus_pwr_passport_enable(amp->regmap, true);
 
 				dev_info(amp_group->pwr_dev,
-					 "Amp cs35l41%s above target temp and ambient + 5.\n",
-					 amp->mfd_suffix);
+					 "Amp %s%s above target temp and ambient + 5.\n",
+					 amp->dsp_part_name, amp->mfd_suffix);
 
 				dev_info(amp_group->pwr_dev,
 					 "Enabling PASSPORT\n");
@@ -253,8 +254,8 @@ static void cirrus_pwr_work(struct work_struct *work)
 
 		}
 
-		dev_dbg(amp_group->pwr_dev, "Amp cs35l41%s: Passport %s\n",
-			amp->mfd_suffix, amp->pwr.passport_enable ?
+		dev_dbg(amp_group->pwr_dev, "Amp %s%s: Passport %s\n",
+			amp->dsp_part_name, amp->mfd_suffix, amp->pwr.passport_enable ?
 				"Enabled" : "Disabled");
 	}
 

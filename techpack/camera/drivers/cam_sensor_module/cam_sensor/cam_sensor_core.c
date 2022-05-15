@@ -12,6 +12,11 @@
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
 
+#if defined(CONFIG_LEDS_S2MU106_FLASH)
+extern int muic_afc_set_voltage(int vol);
+extern void pdo_ctrl_by_flash(bool mode);
+#endif
+
 #if defined(CONFIG_GC5035_MACRO_OTP_DD_AUTOLOAD)
 #include "gc5035_macro_otp.h"
 #endif
@@ -77,10 +82,14 @@ int32_t cam_check_stream_on(
 		case SENSOR_ID_S5K3J1:
 		case SENSOR_ID_S5KGH1:
 		case SENSOR_ID_S5KHM3:
+		case SENSOR_ID_S5KHM6:
 		case SENSOR_ID_IMX258:
 		case FRONT_SENSOR_ID_IMX471:
 #if defined(CONFIG_SEC_Q2Q_PROJECT)
 		case SENSOR_ID_HI1337:
+#endif
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
+		case SENSOR_ID_HI1336:
 #endif
 		case SENSOR_ID_S5KGW3:	
 			ret = 1;
@@ -1227,17 +1236,19 @@ int cam_sensor_match_id(struct cam_sensor_ctrl_t *s_ctrl)
 			 slave_info);
 		return -EINVAL;
 	}
-#if defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT)
-	if(slave_info->sensor_id == 0x0616){
+#if defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT)
+           if(slave_info->sensor_id == 0x0616){
 		usleep_range(500,600);
+		
 	}
 #endif		
 
 	rc = camera_io_dev_read(
 		&(s_ctrl->io_master_info),
 		slave_info->sensor_id_reg_addr,
-		&chipid, CAMERA_SENSOR_I2C_TYPE_WORD,
-		CAMERA_SENSOR_I2C_TYPE_WORD);
+		&chipid,
+		s_ctrl->sensor_probe_addr_type,
+		s_ctrl->sensor_probe_data_type);
 #if defined(CONFIG_SAMSUNG_SUPPORT_MULTI_MODULE)
 	if (rc < 0) {
 		CAM_ERR(CAM_SENSOR, "i2c failed, rc = %d", rc);
@@ -1486,7 +1497,7 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 #if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
 	struct cam_hw_param *hw_param = NULL;
 #endif
-#if defined(CONFIG_SEC_A52SXQ_PROJECT)
+#if defined(CONFIG_SEC_A52SXQ_PROJECT) || defined (CONFIG_SEC_A73XQ_PROJECT)
 	uint32_t version_id = 0;
 	uint16_t sensor_id = 0;
 	uint16_t expected_version_id = 0;
@@ -1631,6 +1642,42 @@ int32_t cam_sensor_driver_cmd(struct cam_sensor_ctrl_t *s_ctrl,
 				}
 			}
 		}
+#endif
+
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
+			if (s_ctrl->soc_info.index == 0) { // check Rear HM6
+			
+				sensor_id = s_ctrl->sensordata->slave_info.sensor_id;
+				expected_version_id = s_ctrl->sensordata->slave_info.version_id;
+			
+				rc = camera_io_dev_read(
+					&(s_ctrl->io_master_info),
+					0x0002, &version_id,
+					CAMERA_SENSOR_I2C_TYPE_WORD,
+					CAMERA_SENSOR_I2C_TYPE_WORD);
+			
+				version_id>>=8; //Shift 8 bits to get two characters only.
+			
+				if (rc < 0) {
+					CAM_ERR(CAM_SENSOR, "Read version id fail %d", rc);
+				} else {
+					CAM_ERR(CAM_SENSOR,
+						"Read version id = 0x%x,Expected_version_id = 0x%x", version_id, expected_version_id);
+			
+						if (version_id == expected_version_id && version_id == 0XA0)
+							CAM_ERR(CAM_SENSOR, "Found HM6 EVT0 Sample");
+						else if (version_id == expected_version_id && version_id == 0XB0)
+							CAM_ERR(CAM_SENSOR, "Found HM6 EVT1 Sample");
+						else if (version_id == expected_version_id && version_id == 0XB1)
+							CAM_ERR(CAM_SENSOR, "Found HM6 EVT1 OTP -Sample");						
+						else {
+							CAM_ERR(CAM_SENSOR, "Not matched");
+							rc = -EINVAL;
+							cam_sensor_power_down(s_ctrl);
+							goto release_mutex;
+					}
+				}
+			}
 #endif
 
 			/* Match sensor ID */
@@ -2298,6 +2345,16 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 
+// Added for PLM P191224-07745 (suggestion from sLSI PMIC team)
+// Set the PMIC voltage to 5V for Flash operation on Rear Sensor
+#if defined(CONFIG_LEDS_S2MU106_FLASH)
+	if(s_ctrl->soc_info.index == 0 || s_ctrl->soc_info.index == 4)
+	{
+		pdo_ctrl_by_flash(1);
+		muic_afc_set_voltage(5);
+	}
+#endif
+
 #if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
 	if (s_ctrl != NULL) {
 		switch (s_ctrl->id) {
@@ -2460,6 +2517,16 @@ int cam_sensor_power_down(struct cam_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 
+// Added for PLM P191224-07745 (suggestion from sLSI PMIC team)
+// Re-Set the PMIC voltage
+#if defined(CONFIG_LEDS_S2MU106_FLASH)
+	if(s_ctrl->soc_info.index == 0 || s_ctrl->soc_info.index == 4)
+	{
+		pdo_ctrl_by_flash(0);
+		muic_afc_set_voltage(9);
+	}
+#endif
+
 #if defined(CONFIG_USE_CAMERA_HW_BIG_DATA)
 	if (s_ctrl != NULL) {
 		switch (s_ctrl->id) {
@@ -2584,8 +2651,8 @@ int cam_sensor_power_down(struct cam_sensor_ctrl_t *s_ctrl)
 	}
 	
 // Add 200us delay to meet the power off specification iT3 (End of MIPI transfer to MCLK disable and I2C shutdown)
-#if defined(CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_GTS7FEWIFI_PROJECT)
-     msleep(2);
+#if defined(CONFIG_SEC_M52XQ_PROJECT) || defined(CONFIG_SEC_GTS7FEWIFI_PROJECT) || defined(CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT)
+    msleep(2);
 #endif
 
 	rc = cam_sensor_util_power_down(power_info, soc_info);

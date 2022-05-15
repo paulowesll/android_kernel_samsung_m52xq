@@ -62,6 +62,7 @@ static struct cam_sensor_i2c_reg_array gw1p_seamless_off[] = {
 #define SENSOR_ID_S5K2L3 0x20C3
 #define SENSOR_ID_S5KHM1 0x1AD1
 #define SENSOR_ID_S5KHM3 0x1AD3
+#define SENSOR_ID_S5KHM6 0x1AD6
 #define SENSOR_ID_S5K3M5 0x30D5
 #define SENSOR_ID_S5K3J1 0x30A1
 #define SENSOR_ID_IMX258 0x0258
@@ -95,6 +96,9 @@ int msm_camera_pinctrl_init
 	(struct msm_pinctrl_info *sensor_pctrl, struct device *dev);
 
 int32_t cam_sensor_util_get_current_qtimer_ns(uint64_t *qtime_ns);
+
+int32_t cam_sensor_util_regulator_powerup(
+	struct cam_hw_soc_info *soc_info);
 
 int32_t cam_sensor_util_write_qtimer_to_io_buffer(
 	struct cam_buf_io_cfg *io_cfg);

@@ -68,8 +68,6 @@
 			snps,has-lpm-erratum;
 			snps,hird-threshold = /bits/ 8 <0x0>;
 			snps,is-utmi-l1-suspend;
-			snps,dis-u1-entry-quirk;
-			snps,dis-u2-entry-quirk;
 			snps,dis_u2_susphy_quirk;
 			snps,ssp-u3-u0-quirk;
 			tx-fifo-resize;
@@ -331,7 +329,8 @@
 		resets = <&gcc GCC_USB30_SEC_BCR>;
 		reset-names = "core_reset";
 
-		qcom,core-clk-rate = <60000000>;
+		qcom,core-clk-rate = <120000000>;
+		qcom,core-clk-rate-hs = <60000000>;
 		qcom,num-gsi-evt-buffs = <0x3>;
 		qcom,pm-qos-latency = <61>;
 		qcom,gsi-reg-offset =

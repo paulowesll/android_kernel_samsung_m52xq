@@ -37,6 +37,7 @@ typedef enum {
 	PDIC_NOTIFY_EVENT_PD_SOURCE,
 	PDIC_NOTIFY_EVENT_PD_SINK_CAP,
 	PDIC_NOTIFY_EVENT_PD_PRSWAP_SNKTOSRC,
+	PDIC_NOTIFY_EVENT_PD_PRSWAP_SRCTOSNK,
 } pdic_notifier_event_t;
 
 typedef enum
@@ -48,11 +49,25 @@ typedef enum
 	RP_CURRENT_ABNORMAL,
 } RP_CURRENT_LEVEL;
 
+typedef enum
+{
+	FPDO_TYPE = 0,
+	APDO_TYPE,
+	VPDO_TYPE,
+} PDO_TYPE_T;
+
+typedef enum {
+	AUTH_NONE = 0,
+	AUTH_LOW_PWR,
+	AUTH_HIGH_PWR,
+} AUTH_TYPE_T;
+
 typedef struct _power_list {
 	int accept;
 	int max_voltage;
 	int min_voltage;
 	int max_current;
+	int pdo_type;
 	int apdo;
 	int comm_capable;
 	int suspend;
@@ -76,7 +91,9 @@ typedef struct sec_pd_sink_status
 
 	void (*fp_sec_pd_select_pdo)(int num);
 	int (*fp_sec_pd_select_pps)(int num, int ppsVol, int ppsCur);
+	void (*fp_sec_pd_vpdo_auth)(int auth, int d2d_type);
 	void (*fp_sec_pd_ext_cb)(unsigned short v_id, unsigned short p_id);
+	void (*fp_sec_pd_manual_ccopen_req)(int is_on);
 } SEC_PD_SINK_STATUS;
 
 struct pdic_notifier_struct {
@@ -86,19 +103,27 @@ struct pdic_notifier_struct {
 };
 
 #if IS_ENABLED(CONFIG_SEC_PD)
+const char* sec_pd_pdo_type_str(int pdo_type);
 int sec_pd_select_pdo(int num);
 int sec_pd_select_pps(int num, int ppsVol, int ppsCur);
+int sec_pd_vpdo_auth(int auth, int d2d_type);
 int sec_pd_get_apdo_max_power(unsigned int *pdo_pos, unsigned int *taMaxVol, unsigned int *taMaxCur, unsigned int *taMaxPwr);
+int sec_pd_get_selected_pdo(unsigned int *pdo);
 void sec_pd_init_data(SEC_PD_SINK_STATUS* psink_status);
 int sec_pd_register_chg_info_cb(void *cb);
 int sec_pd_get_chg_info(void);
 void sec_pd_get_vid_pid(unsigned short *vid, unsigned short *pid, unsigned int *xid);
+void sec_pd_manual_ccopen_req(int is_on);
 #else
+static inline char* sec_pd_pdo_type_str(int pdo_type) { return "\0"; }
 static inline int sec_pd_select_pdo(int num) { return -ENODEV; }
 static inline int sec_pd_select_pps(int num, int ppsVol, int ppsCur) { return -ENODEV; }
+static inline int sec_pd_vpdo_auth(int auth, int d2d_type) { return -ENODEV; }
 static inline int sec_pd_get_apdo_max_power(unsigned int *pdo_pos, unsigned int *taMaxVol, unsigned int *taMaxCur, unsigned int *taMaxPwr) { return -ENODEV; }
+static inline int sec_pd_get_selected_pdo(unsigned int *pdo) { return -ENODEV; }
 static inline void sec_pd_init_data(SEC_PD_SINK_STATUS* psink_status) { }
 static inline int sec_pd_register_chg_info_cb(void *cb) { return 0; }
 static inline void sec_pd_get_vid_pid(unsigned short *vid, unsigned short *pid, unsigned int *xid) { }
+static inline void sec_pd_manual_ccopen_req(int is_on) { }
 #endif
 #endif /* __SEC_PD_H__ */

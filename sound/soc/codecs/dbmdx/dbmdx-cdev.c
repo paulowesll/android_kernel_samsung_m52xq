@@ -184,9 +184,15 @@ int dbmdx_register_cdev(struct dbmdx_private *p)
 		return -EINVAL;
 	}
 
+#if IS_ENABLED(CONFIG_AUDIO_QGKI)
 	p->record_dev = device_create(p->ns_class, &platform_bus,
 				      MKDEV(MAJOR(p->record_chrdev), 0),
 				      p, "dbmdx-%d", 0);
+#else
+	p->record_dev = device_create(p->ns_class, p->dev->parent,
+				      MKDEV(MAJOR(p->record_chrdev), 0),
+				      p, "dbmdx-%d", 0);
+#endif
 	if (IS_ERR(p->record_dev)) {
 		dev_err(p->dev, "could not create device\n");
 		unregister_chrdev_region(p->record_chrdev, 1);
@@ -194,9 +200,15 @@ int dbmdx_register_cdev(struct dbmdx_private *p)
 		return -EINVAL;
 	}
 
+#if IS_ENABLED(CONFIG_AUDIO_QGKI)
 	p->record_dev_block = device_create(p->ns_class, &platform_bus,
 					    MKDEV(MAJOR(p->record_chrdev), 1),
 					    p, "dbmdx-%d", 1);
+#else
+	p->record_dev_block = device_create(p->ns_class, p->dev->parent,
+					    MKDEV(MAJOR(p->record_chrdev), 1),
+					    p, "dbmdx-%d", 1);
+#endif
 	if (IS_ERR(p->record_dev_block)) {
 		dev_err(p->dev, "could not create device\n");
 		unregister_chrdev_region(p->record_chrdev, 1);

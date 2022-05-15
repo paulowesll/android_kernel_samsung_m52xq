@@ -12,32 +12,168 @@
 #include "stm_dev.h"
 #include "stm_reg.h"
 
-#if IS_ENABLED(CONFIG_SEC_FACTORY)
-static ssize_t stm_ts_get_cmoffset_dump(struct stm_ts_data *ts, char *buf, u8 position)
+static ssize_t get_cmoffset_dump_v2(struct stm_ts_data *ts, char *buf, u8 position)
 {
-	u8 regaddr[4] = { 0 };
 	u8 *rbuff;
-	int ret, i, j, size = ts->rx_count * ts->tx_count;
+	int ret, i, j, cm_num, value, size = 8 + ts->tx_count * ts->rx_count;
 	u32 signature;
+	u8 address[4] = { 0 };
+	char buff[80] = { 0 };
 
-	if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: Touch is stopped\n", __func__);
-		return -EPERM;
-	}
-	if (ts->plat_data->power_state == SEC_INPUT_STATE_LPM) {
-		input_err(true, &ts->client->dev, "%s: Touch is LP mode\n", __func__);
-		return -EPERM;
-	}
-
-	if (ts->reset_is_on_going) {
-		input_err(true, &ts->client->dev, "%s: Reset is ongoing!\n", __func__);
-		return -EPERM;
+	rbuff = kzalloc(size, GFP_KERNEL);
+	if (!rbuff) {
+		input_err(true, &ts->client->dev, "%s: alloc failed\n", __func__);
+		return -ENOMEM;
 	}
 
-	if (ts->sec.cmd_is_running) {
-		input_err(true, &ts->client->dev, "%s: cmd is running\n", __func__);
-		return -EBUSY;
+	ts->stm_ts_systemreset(ts, 50);
+
+	/* read cm2 & cm3 */
+	for (cm_num = 2; cm_num < 4; ++cm_num) {
+		input_info(true, &ts->client->dev, "%s: CM%d read start! buf size:%lu\n", __func__, cm_num, strlen(buf));
+
+		// Set Test mode : prepare save test data & fail history
+		address[0] = 0xE4;
+		address[1] = 0x02;
+
+		ret = stm_ts_wait_for_echo_event(ts, address, 2, 0);
+		if (ret < 0) {
+			snprintf(buf, ts->proc_cmoffset_size, "NG, timeout, %d", ret);
+			goto out;
+		}
+
+		ts->stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, true);
+
+		stm_ts_release_all_finger(ts);
+
+		// set factory level for read data
+		address[0] = 0x74;
+		address[1] = position;
+
+		ret = stm_ts_wait_for_echo_event(ts, address, 2, 0);
+		if (ret < 0) {
+			snprintf(buf, ts->proc_cmoffset_size, "NG, timeout, %d", ret);
+			goto out;
+		}
+
+		// set data typr for read data
+		address[0] = 0x7D;
+		if (cm_num == OFFSET_FAC_DATA_CM2) {
+			signature = STM_TS_CM2_SIGNATURE;
+			address[1] = 0x01;
+		} else if (cm_num == OFFSET_FAC_DATA_CM3) {
+			signature = STM_TS_CM3_SIGNATURE;
+			address[1] = 0x02;
+		}
+
+		ret = stm_ts_wait_for_echo_event(ts, address, 2, 0);
+		if (ret < 0) {
+			snprintf(buf, ts->proc_cmoffset_size, "NG, timeout, %d", ret);
+			goto out;
+		}
+
+		memset(rbuff, 0x00, size);
+
+		address[0] = 0x75;
+		ret = ts->stm_ts_read(ts, &address[0], 1, rbuff, size);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev, "%s: read failed ret = %d\n", __func__, ret);
+			snprintf(buf, ts->proc_cmoffset_size, "NG, failed to read data, %d", ret);
+			continue;
+		} else {
+			input_info(true, &ts->client->dev, "%s: read size = %d, ret = %d\n", __func__, size, ret);
+		}
+
+		if (position == OFFSET_FW_SDC) {
+			snprintf(buff, sizeof(buff), "%s", "SDC ");
+		} else if (position == OFFSET_FW_SUB) {
+			snprintf(buff, sizeof(buff), "%s", "SUB ");
+		} else if (position == OFFSET_FW_MAIN) {
+			snprintf(buff, sizeof(buff), "%s", "MAIN ");
+		}
+		strlcat(buf, buff, ts->proc_cmoffset_size);
+
+		// data parsing
+		/* check Header */
+		value = rbuff[3] << 24 | rbuff[2] << 16 | rbuff[1] << 8 | rbuff[0];
+		if (value == 0) {
+			snprintf(buff, sizeof(buff), "CM%d Data empty!\n", cm_num);
+			strlcat(buf, buff, ts->proc_cmoffset_size);
+
+			input_err(true, &ts->client->dev, "%s: CM%d Data empty\n", __func__, cm_num);
+			continue;
+		} else if (value != signature) {
+			snprintf(buff, sizeof(buff), "CM%d : signature mismatched %08X != %08X\n", cm_num, signature, value);
+			strlcat(buf, buff, ts->proc_cmoffset_size);
+
+			input_err(true, &ts->client->dev, "%s: CM%d pos[%d] signature is mismatched %08X != %08X\n",
+						__func__, cm_num, position, signature, value);
+
+			continue;
+		} else {
+			snprintf(buff, sizeof(buff), "CM%d try cnt:%d\n", cm_num, rbuff[5]);
+			strlcat(buf, buff, ts->proc_cmoffset_size);
+
+			input_info(true, &ts->client->dev, "%s: CM%d try cnt:%d value %d signature:%8X\n",
+						__func__, cm_num, rbuff[5], value, signature);
+		}
+
+		for (i = 0; i < ts->tx_count; i++) {
+			for (j = 0; j < ts->rx_count; j++) {
+				snprintf(buff, sizeof(buff), " %3d", (rbuff[8 + i * ts->rx_count + j]) << 3);
+				strlcat(buf, buff, ts->proc_cmoffset_size);
+			}
+			snprintf(buff, sizeof(buff), "\n");
+			strlcat(buf, buff, ts->proc_cmoffset_size);
+		}
+		input_info(true, &ts->client->dev, "%s: CM%d read end!\n", __func__, cm_num);
 	}
+
+out:
+	input_err(true, &ts->client->dev, "%s: pos:%d, buf size:%zu\n", __func__, position, strlen(buf));
+
+	// clear factory level
+	address[0] = 0x74;
+	address[1] = 0;
+
+	ret = stm_ts_wait_for_echo_event(ts, address, 2, 0);
+	if (ret < 0)
+		goto err_out;
+
+	// clear data type
+	address[0] = 0x7D;
+	address[1] = 0x00;
+
+	ret = stm_ts_wait_for_echo_event(ts, address, 2, 0);
+	if (ret < 0)
+		goto err_out;
+
+	// Set Normal mode : save test data & fail history
+	address[0] = 0xE4;
+	address[1] = 0x00;
+
+	ret = stm_ts_wait_for_echo_event(ts, address, 2, 0);
+	if (ret < 0)
+		goto err_out;
+
+err_out:
+	/* reinit */
+	ts->stm_ts_systemreset(ts, 0);
+
+	stm_ts_set_scanmode(ts, ts->scan_mode);
+
+	kfree(rbuff);
+
+	return strlen(buf);
+}
+
+
+static ssize_t get_cmoffset_dump_v1(struct stm_ts_data *ts, char *buf, u8 position)
+{
+	u8 *rbuff;
+	int ret, i, j, size = ts->tx_count * ts->rx_count;
+	u32 signature;
+	u8 address[4] = { 0 };
 
 	rbuff = kzalloc(size, GFP_KERNEL);
 	if (!rbuff) {
@@ -50,21 +186,21 @@ static ssize_t stm_ts_get_cmoffset_dump(struct stm_ts_data *ts, char *buf, u8 po
 	stm_ts_release_all_finger(ts);
 
 	/* Request SEC factory debug data from flash */
-	regaddr[0] = 0xA4;
-	regaddr[1] = 0x06;
-	regaddr[2] = 0x92;
-	regaddr[3] = position;
-	ret = stm_ts_wait_for_echo_event(ts, regaddr, 4, 0);
+	address[0] = 0xA4;
+	address[1] = 0x06;
+	address[2] = 0x92;
+	address[3] = position;
+	ret = stm_ts_wait_for_echo_event(ts, address, 4, 0);
 	if (ret < 0) {
 		snprintf(buf, ts->proc_cmoffset_size, "NG, failed to request data, %d", ret);
 		goto out;
 	}
 
 	/* read header info */
-	regaddr[0] = 0xA6;
-	regaddr[1] = 0x00;
-	regaddr[2] = 0x00;
-	ret = ts->stm_ts_i2c_read(ts, &regaddr[0], 3, rbuff, 8);
+	address[0] = 0xA6;
+	address[1] = 0x00;
+	address[2] = 0x00;
+	ret = ts->stm_ts_read(ts, &address[0], 3, rbuff, 8);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: read header failed. ret: %d\n", __func__, ret);
@@ -85,10 +221,10 @@ static ssize_t stm_ts_get_cmoffset_dump(struct stm_ts_data *ts, char *buf, u8 po
 	}
 
 	/* read history data */
-	regaddr[0] = 0xA6;
-	regaddr[1] = 0x00;
-	regaddr[2] = (u8)ts->rx_count;
-	ret = ts->stm_ts_i2c_read(ts, &regaddr[0], 3, rbuff, size);
+	address[0] = 0xA6;
+	address[1] = 0x00;
+	address[2] = (u8)ts->rx_count;
+	ret = ts->stm_ts_read(ts, &address[0], 3, rbuff, size);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: read data failed. ret: %d\n", __func__, ret);
@@ -101,20 +237,19 @@ static ssize_t stm_ts_get_cmoffset_dump(struct stm_ts_data *ts, char *buf, u8 po
 		char buff[4] = { 0 };
 
 		for (j = 0; j < ts->rx_count; j++) {
-			snprintf(buff, sizeof(buff), " %d", rbuff[i * ts->rx_count + j]);
+			snprintf(buff, sizeof(buff), " %d", rbuff[i * ts->tx_count + j]);
 			strlcat(buf, buff, ts->proc_cmoffset_size);
 		}
 		snprintf(buff, sizeof(buff), "\n");
 		strlcat(buf, buff, ts->proc_cmoffset_size);
 	}
-
 out:
 	input_err(true, &ts->client->dev, "%s: pos:%d, buf size:%zu\n", __func__, position, strlen(buf));
 
 	kfree(rbuff);
 	return strlen(buf);
 }
-#endif
+
 
 static ssize_t stm_ts_tsp_cmoffset_all_read(struct file *file, char __user *buf,
 					size_t len, loff_t *offset)
@@ -135,15 +270,15 @@ static ssize_t stm_ts_tsp_cmoffset_all_read(struct file *file, char __user *buf,
 
 	if (pos == 0) {
 #if IS_ENABLED(CONFIG_SEC_FACTORY)
-		ret = stm_ts_get_cmoffset_dump(ts, ts->cmoffset_sdc_proc, OFFSET_FW_SDC);
+		ret = get_cmoffset_dump(ts, ts->cmoffset_sdc_proc, OFFSET_FW_SDC);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
 				"%s: SDC fail use boot time value\n", __func__);
-		ret = stm_ts_get_cmoffset_dump(ts, ts->cmoffset_sub_proc, OFFSET_FW_SUB);
+		ret = get_cmoffset_dump(ts, ts->cmoffset_sub_proc, OFFSET_FW_SUB);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
 				"%s: SUB fail use boot time value\n", __func__);
-		ret = stm_ts_get_cmoffset_dump(ts, ts->cmoffset_main_proc, OFFSET_FW_MAIN);
+		ret = get_cmoffset_dump(ts, ts->cmoffset_main_proc, OFFSET_FW_MAIN);
 		if (ret < 0)
 			input_err(true, &ts->client->dev,
 				"%s: MAIN fail use boot time value\n", __func__);
@@ -291,20 +426,15 @@ void stm_ts_sponge_dump_flush(struct stm_ts_data *ts, int dump_area)
 EXPORT_SYMBOL(stm_ts_sponge_dump_flush);
 #endif
 
-ssize_t get_cmoffset_dump(struct stm_ts_data *ts, char *buf, u8 position)
+static int stm_ts_init_check(struct stm_ts_data *ts)
 {
-	u8 *rbuff;
-	int ret, i, j, size = ts->tx_count * ts->rx_count;
-	u32 signature;
-	u8 address[4] = { 0 };
-
 	if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is stopped\n", __func__);
+		input_err(true, &ts->client->dev, "%s: Touch is stopped\n", __func__);
 		return -EPERM;
 	}
 
 	if (ts->plat_data->power_state == SEC_INPUT_STATE_LPM) {
-		input_err(true, &ts->client->dev, "%s: [ERROR] Touch is LP mode\n", __func__);
+		input_err(true, &ts->client->dev, "%s: Touch is LP mode\n", __func__);
 		return -EPERM;
 	}
 
@@ -318,78 +448,25 @@ ssize_t get_cmoffset_dump(struct stm_ts_data *ts, char *buf, u8 position)
 		return -EBUSY;
 	}
 
-	rbuff = kzalloc(size, GFP_KERNEL);
-	if (!rbuff) {
-		input_err(true, &ts->client->dev, "%s: alloc failed\n", __func__);
-		return -ENOMEM;
-	}
+	return 0;
+}
 
-	ts->stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, true);
+ssize_t get_cmoffset_dump(struct stm_ts_data *ts, char *buf, u8 position)
+{
 
-	stm_ts_release_all_finger(ts);
+	int ret = 0;
 
-	/* Request SEC factory debug data from flash */
-	address[0] = 0xA4;
-	address[1] = 0x06;
-	address[2] = 0x92;
-	address[3] = position;
-	ret = stm_ts_wait_for_echo_event(ts, address, 4, 0);
+	ret = stm_ts_init_check(ts);
 	if (ret < 0) {
-		snprintf(buf, ts->proc_cmoffset_size, "NG, failed to request data, %d", ret);
-		goto out;
+		return ret;
 	}
 
-	/* read header info */
-	address[0] = 0xA6;
-	address[1] = 0x00;
-	address[2] = 0x00;
-	ret = ts->stm_ts_i2c_read(ts, &address[0], 3, rbuff, 8);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev,
-				"%s: read header failed. ret: %d\n", __func__, ret);
-		snprintf(buf, ts->proc_cmoffset_size, "NG, failed to read header, %d", ret);
-		goto out;
+	if (ts->plat_data->dump_ic_ver == STM_TS_GET_CMOFFSET_DUMP_V1) {
+		return get_cmoffset_dump_v1(ts, buf, position);
+	} else if (ts->plat_data->dump_ic_ver == STM_TS_GET_CMOFFSET_DUMP_V2) {
+		return get_cmoffset_dump_v2(ts, buf, position);
 	}
 
-	signature = rbuff[3] << 24 | rbuff[2] << 16 | rbuff[1] << 8 | rbuff[0];
-	input_info(true, &ts->client->dev,
-			"%s: position:%d, signature:%08X (%X), validation:%X, try count:%X\n",
-			__func__, position, signature, SEC_OFFSET_SIGNATURE, rbuff[4], rbuff[5]);
-
-	if (signature != SEC_OFFSET_SIGNATURE) {
-		input_err(true, &ts->client->dev, "%s: cmoffset[%d], signature is mismatched\n",
-				__func__, position);
-		snprintf(buf, ts->proc_cmoffset_size, "signature mismatched %08X\n", signature);
-		goto out;
-	}
-
-	/* read history data */
-	address[0] = 0xA6;
-	address[1] = 0x00;
-	address[2] = (u8)ts->tx_count;
-	ret = ts->stm_ts_i2c_read(ts, &address[0], 3, rbuff, size);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev,
-				"%s: read data failed. ret: %d\n", __func__, ret);
-		snprintf(buf, ts->proc_cmoffset_size, "NG, failed to read data %d", ret);
-		goto out;
-	}
-
-	memset(buf, 0x00, ts->proc_cmoffset_size);
-	for (i = 0; i < ts->rx_count; i++) {
-		char buff[4] = { 0 };
-
-		for (j = 0; j < ts->tx_count; j++) {
-			snprintf(buff, sizeof(buff), " %d", rbuff[i * ts->tx_count + j]);
-			strlcat(buf, buff, ts->proc_cmoffset_size);
-		}
-		snprintf(buff, sizeof(buff), "\n");
-		strlcat(buf, buff, ts->proc_cmoffset_size);
-	}
-out:
-	input_err(true, &ts->client->dev, "%s: pos:%d, buf size:%zu\n", __func__, position, strlen(buf));
-	
-	kfree(rbuff);
 	return strlen(buf);
 
 }
@@ -400,11 +477,7 @@ static ssize_t stm_ts_tsp_cmoffset_read(struct file *file, char __user *buf,
 	return stm_ts_tsp_cmoffset_all_read(file, buf, len, offset);
 }
 
-static const struct file_operations tsp_cmoffset_all_file_ops = {
-	.owner = THIS_MODULE,
-	.read = stm_ts_tsp_cmoffset_read,
-	.llseek = generic_file_llseek,
-};
+static sec_input_proc_ops(THIS_MODULE, tsp_cmoffset_all_file_ops, stm_ts_tsp_cmoffset_read, NULL);
 
 void stm_ts_init_proc(struct stm_ts_data *ts)
 {

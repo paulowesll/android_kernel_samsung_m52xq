@@ -57,7 +57,7 @@ extern int factory_mode;
 static unsigned int __read_mostly lpcharge;
 module_param(lpcharge, uint, 0444);
 static int __read_mostly factory_mode;
-module_param(facotry_mode, int, 0444);
+module_param(factory_mode, int, 0444);
 #endif
 
 enum sm5714_battery_table_type {
@@ -1844,14 +1844,10 @@ static int sm5714_fg_get_property(struct power_supply *psy,
 		val->intval = fuelgauge->info.batt_voltage;
 		break;
 	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
-		switch (val->intval) {
-		case SEC_BATTERY_VOLTAGE_OCV:
-			val->intval = fuelgauge->info.batt_ocv;
-			break;
-		case SEC_BATTERY_VOLTAGE_AVERAGE:
-			val->intval = fuelgauge->info.batt_avgvoltage;
-			break;
-		}
+		val->intval = fuelgauge->info.batt_avgvoltage;
+		break;
+	case POWER_SUPPLY_PROP_VOLTAGE_OCV:
+		val->intval = fuelgauge->info.batt_ocv;
 		break;
 	/* Current */
 	case POWER_SUPPLY_PROP_CURRENT_NOW:

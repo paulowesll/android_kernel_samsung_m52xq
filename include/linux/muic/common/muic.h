@@ -305,6 +305,7 @@ struct muic_platform_data {
 	struct mutex sysfs_mutex;
 	struct muic_sysfs_cb sysfs_cb;
 #endif
+	struct device *muic_device;
 
 	int switch_sel;
 
@@ -584,6 +585,7 @@ typedef enum tx_data{
 #endif
 
 #if IS_ENABLED(CONFIG_MUIC_NOTIFIER)
+extern void muic_send_lcd_on_uevent(struct muic_platform_data *muic_pdata);
 extern int muic_set_hiccup_mode(int on_off);
 extern int muic_hv_charger_init(void);
 extern int muic_afc_get_voltage(void);
@@ -591,8 +593,14 @@ extern int muic_afc_get_voltage(void);
 extern int muic_afc_set_voltage(int voltage);
 #endif
 extern int muic_hv_charger_disable(bool en);
+#if IS_ENABLED(CONFIG_VIRTUAL_MUIC)
+extern void vt_muic_set_attached_afc_dev(int attached_afc_dev);
+extern int vt_muic_get_attached_dev(void);
+#endif
 
 #else
+static inline void muic_send_lcd_on_uevent(struct muic_platform_data *muic_pdata)
+	{return; }
 static inline int muic_set_hiccup_mode(int on_off) {return 0; }
 static inline int muic_hv_charger_init(void) {return 0; }
 static inline int muic_afc_get_voltage(void) {return 0; }
@@ -600,6 +608,10 @@ static inline int muic_afc_get_voltage(void) {return 0; }
 static inline int muic_afc_set_voltage(int voltage) {return 0; }
 #endif
 static inline int muic_hv_charger_disable(bool en) {return 0; }
+#if IS_ENABLED(CONFIG_VIRTUAL_MUIC)
+static inline void vt_muic_set_attached_afc_dev(int attached_afc_dev) {return; }
+static inline int vt_muic_get_attached_dev(void) {return 0; }
+#endif
 #endif
 
 #endif /* __MUIC_H__ */

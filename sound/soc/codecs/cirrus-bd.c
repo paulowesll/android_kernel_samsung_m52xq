@@ -1,5 +1,5 @@
 /*
- * Big-data logging support for Cirrus Logic CS35L41 codec
+ * Big-data logging support for Cirrus Logic Smart Amplifiers
  *
  * Copyright 2017 Cirrus Logic
  *
@@ -60,10 +60,10 @@ void cirrus_bd_store_values(const char *mfd_suffix)
 	cirrus_amp_read_ctl(amp, "BDLOG_ABNORMAL_MUTE", WMFW_ADSP2_XM,
 			    CIRRUS_AMP_ALG_ID_CSPL, &abnm_mute);
 
-	if (max_temp > (amp->bd.max_temp_limit * (1 << CS35L41_BD_TEMP_RADIX))
+	if (max_temp > (amp->bd.max_temp_limit * (1 << CIRRUS_BD_TEMP_RADIX))
 	    && over_temp_count == 0)
 		max_temp = (amp->bd.max_temp_limit *
-			    (1 << CS35L41_BD_TEMP_RADIX));
+			    (1 << CIRRUS_BD_TEMP_RADIX));
 
 	amp->bd.over_temp_count += over_temp_count;
 	amp->bd.over_exc_count += over_exc_count;
@@ -79,15 +79,15 @@ void cirrus_bd_store_values(const char *mfd_suffix)
 
 	dev_info(amp_group->bd_dev, "Values stored for amp%s:\n", mfd_suffix);
 	dev_info(amp_group->bd_dev, "Max Excursion:\t\t%d.%04d\n",
-		 amp->bd.max_exc >> CS35L41_BD_EXC_RADIX,
-		 (amp->bd.max_exc & (((1 << CS35L41_BD_EXC_RADIX) - 1))) *
-			10000 / (1 << CS35L41_BD_EXC_RADIX));
+		 amp->bd.max_exc >> CIRRUS_BD_EXC_RADIX,
+		 (amp->bd.max_exc & (((1 << CIRRUS_BD_EXC_RADIX) - 1))) *
+			10000 / (1 << CIRRUS_BD_EXC_RADIX));
 	dev_info(amp_group->bd_dev, "Over Excursion Count:\t%d\n",
 		 amp->bd.over_exc_count);
 	dev_info(amp_group->bd_dev, "Max Temp:\t\t\t%d.%04d\n",
-		 amp->bd.max_temp >> CS35L41_BD_TEMP_RADIX,
-		 (amp->bd.max_temp & (((1 << CS35L41_BD_TEMP_RADIX) - 1))) *
-			10000 / (1 << CS35L41_BD_TEMP_RADIX));
+		 amp->bd.max_temp >> CIRRUS_BD_TEMP_RADIX,
+		 (amp->bd.max_temp & (((1 << CIRRUS_BD_TEMP_RADIX) - 1))) *
+			10000 / (1 << CIRRUS_BD_TEMP_RADIX));
 	dev_info(amp_group->bd_dev, "Over Temp Count:\t\t%d\n",
 		 amp->bd.over_temp_count);
 	dev_info(amp_group->bd_dev, "Abnormal Mute:\t\t%d\n",
@@ -135,9 +135,9 @@ static ssize_t cirrus_bd_max_exc_show(struct device *dev,
 	if (!amp)
 		return 0;
 
-	ret = sprintf(buf, "%d.%04d\n", amp->bd.max_exc >> CS35L41_BD_EXC_RADIX,
-		      (amp->bd.max_exc & ((1 << CS35L41_BD_EXC_RADIX) - 1)) *
-			10000 / (1 << CS35L41_BD_EXC_RADIX));
+	ret = sprintf(buf, "%d.%04d\n", amp->bd.max_exc >> CIRRUS_BD_EXC_RADIX,
+		      (amp->bd.max_exc & ((1 << CIRRUS_BD_EXC_RADIX) - 1)) *
+			10000 / (1 << CIRRUS_BD_EXC_RADIX));
 
 	amp->bd.max_exc = 0;
 
@@ -188,9 +188,9 @@ static ssize_t cirrus_bd_max_temp_show(struct device *dev,
 		return 0;
 
 	ret = sprintf(buf, "%d.%04d\n",
-		      amp->bd.max_temp >> CS35L41_BD_TEMP_RADIX,
-		      (amp->bd.max_temp & ((1 << CS35L41_BD_TEMP_RADIX) - 1)) *
-			10000 / (1 << CS35L41_BD_TEMP_RADIX));
+		      amp->bd.max_temp >> CIRRUS_BD_TEMP_RADIX,
+		      (amp->bd.max_temp & ((1 << CIRRUS_BD_TEMP_RADIX) - 1)) *
+			10000 / (1 << CIRRUS_BD_TEMP_RADIX));
 
 	amp->bd.max_temp = 0;
 
@@ -216,10 +216,10 @@ static ssize_t cirrus_bd_max_temp_keep_show(struct device *dev,
 		return 0;
 
 	ret = sprintf(buf, "%d.%04d\n",
-		      amp->bd.max_temp_keep >> CS35L41_BD_TEMP_RADIX,
+		      amp->bd.max_temp_keep >> CIRRUS_BD_TEMP_RADIX,
 		      (amp->bd.max_temp_keep &
-			((1 << CS35L41_BD_TEMP_RADIX) - 1)) *
-			10000 / (1 << CS35L41_BD_TEMP_RADIX));
+			((1 << CIRRUS_BD_TEMP_RADIX) - 1)) *
+			10000 / (1 << CIRRUS_BD_TEMP_RADIX));
 
 	return ret;
 }

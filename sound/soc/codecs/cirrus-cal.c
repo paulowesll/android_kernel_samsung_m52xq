@@ -1,5 +1,5 @@
 /*
- * Calibration support for Cirrus Logic CS35L41 codec
+ * Calibration support for Cirrus Logic Smart Amplifiers
  *
  * Copyright 2017 Cirrus Logic
  *
@@ -61,9 +61,9 @@ enum cirrus_cspl_mboxcmd {
 #define CIRRUS_CAL_VSC_SAVE_LOCATION		"/efs/cirrus/vsc_cal"
 #define CIRRUS_CAL_ISC_SAVE_LOCATION		"/efs/cirrus/isc_cal"
 
-#define CS35L41_CAL_COMPLETE_DELAY_MS	1250
+#define CIRRUS_CAL_COMPLETE_DELAY_MS	1250
 #define CIRRUS_CAL_RETRIES		2
-#define CS35L40_CAL_AMBIENT_DEFAULT	23
+#define CIRRUS_CAL_AMBIENT_DEFAULT	23
 
 int cirrus_cal_logger_get_variable(struct cirrus_amp *amp, unsigned int id,
 				   unsigned int *result)
@@ -101,10 +101,10 @@ int cirrus_cal_logger_get_variable(struct cirrus_amp *amp, unsigned int id,
 	return 0;
 }
 
-static unsigned long long cs35l41_rdc_to_ohms(unsigned long rdc)
+static unsigned long long cirrus_cal_rdc_to_ohms(unsigned long rdc)
 {
-	return ((rdc * CS35L41_CAL_AMP_CONSTANT_NUM) /
-		CS35L41_CAL_AMP_CONSTANT_DENOM);
+	return ((rdc * CIRRUS_CAL_AMP_CONSTANT_NUM) /
+		CIRRUS_CAL_AMP_CONSTANT_DENOM);
 }
 
 static unsigned int cirrus_cal_vpk_to_mv(unsigned int vpk)
@@ -114,14 +114,14 @@ static unsigned int cirrus_cal_vpk_to_mv(unsigned int vpk)
 
 static bool cirrus_cal_vsc_in_range(unsigned int vsc)
 {
-	return ((vsc <= CS35L41_VIMON_CAL_VSC_UB) ||
-		(vsc >= CS35L41_VIMON_CAL_VSC_LB && vsc <= 0x00FFFFFF));
+	return ((vsc <= CIRRUS_CAL_VIMON_CAL_VSC_UB) ||
+		(vsc >= CIRRUS_CAL_VIMON_CAL_VSC_LB && vsc <= 0x00FFFFFF));
 }
 
 static bool cirrus_cal_isc_in_range(unsigned int isc)
 {
-	return ((isc <= CS35L41_VIMON_CAL_ISC_UB) ||
-		(isc >= CS35L41_VIMON_CAL_ISC_LB && isc <= 0x00FFFFFF));
+	return ((isc <= CIRRUS_CAL_VIMON_CAL_ISC_UB) ||
+		(isc >= CIRRUS_CAL_VIMON_CAL_ISC_LB && isc <= 0x00FFFFFF));
 }
 
 static int cirrus_cal_load_config(const char *file, struct cirrus_amp *amp)
@@ -152,7 +152,7 @@ static void cirrus_cal_complete_work(struct work_struct *work)
 	unsigned long long ohms;
 	unsigned int cal_state, mbox_cmd, mbox_sts;
 	int rdc, status, checksum, temp, vsc, isc, timeout = 100, i;
-	int delay = msecs_to_jiffies(CS35L41_CAL_COMPLETE_DELAY_MS);
+	int delay = msecs_to_jiffies(CIRRUS_CAL_COMPLETE_DELAY_MS);
 	bool vsc_in_range, isc_in_range;
 	bool cal_retry = false;
 
@@ -182,11 +182,11 @@ static void cirrus_cal_complete_work(struct work_struct *work)
 		cirrus_amp_read_ctl(amp, "CAL_CHECKSUM", WMFW_ADSP2_XM,
 				    CIRRUS_AMP_ALG_ID_CSPL, &checksum);
 
-		ohms = cs35l41_rdc_to_ohms((unsigned long)rdc);
+		ohms = cirrus_cal_rdc_to_ohms((unsigned long)rdc);
 
 		cirrus_amp_read_ctl(amp, "CSPL_STATE", WMFW_ADSP2_XM,
 				    CIRRUS_AMP_ALG_ID_CSPL, &cal_state);
-		if (cal_state == CS35L41_CSPL_STATE_ERROR) {
+		if (cal_state == CSPL_STATE_ERROR) {
 			dev_err(amp_group->cal_dev,
 			      "Error during ReDC cal, invalidating results\n");
 			rdc = status = checksum = 0;
@@ -200,7 +200,7 @@ static void cirrus_cal_complete_work(struct work_struct *work)
 			cirrus_amp_read_ctl(amp, "VIMON_CAL_STATE",
 					    WMFW_ADSP2_XM, amp->vimon_alg_id,
 					    &cal_state);
-			if (cal_state == CS35L41_CAL_VIMON_STATUS_INVALID ||
+			if (cal_state == CIRRUS_CAL_VIMON_STATUS_INVALID ||
 			    cal_state == 0) {
 				dev_err(amp_group->cal_dev,
 				      "Error during VIMON cal, invalidating results\n");
@@ -222,7 +222,7 @@ static void cirrus_cal_complete_work(struct work_struct *work)
 
 				cirrus_amp_write_ctl(amp, "VIMON_CAL_STATE",
 					WMFW_ADSP2_XM, amp->vimon_alg_id,
-					CS35L41_CAL_VIMON_STATUS_INVALID);
+					CIRRUS_CAL_VIMON_STATUS_INVALID);
 
 				if (amp_group->cal_retry < CIRRUS_CAL_RETRIES) {
 					dev_info(amp_group->cal_dev, "Retry Calibration\n");
@@ -230,26 +230,28 @@ static void cirrus_cal_complete_work(struct work_struct *work)
 				}
 			}
 		} else {
+			vsc = 0;
+			isc = 0;
 			cirrus_amp_write_ctl(amp, "VIMON_CAL_STATE",
 				WMFW_ADSP2_XM, amp->vimon_alg_id,
-				CS35L41_CAL_VIMON_STATUS_INVALID);
+				CIRRUS_CAL_VIMON_STATUS_INVALID);
 		}
 
 		dev_info(amp_group->cal_dev,
 				"Calibration finished: %s (%s)\n",
 					amp->dsp_part_name, amp->mfd_suffix);
 		dev_info(amp_group->cal_dev, "Duration:\t%d ms\n",
-			 CS35L41_CAL_COMPLETE_DELAY_MS);
+			 CIRRUS_CAL_COMPLETE_DELAY_MS);
 		dev_info(amp_group->cal_dev, "Status:\t%d\n", status);
-		if (status == CS35L41_CSPL_STATUS_OUT_OF_RANGE)
+		if (status == CSPL_STATUS_OUT_OF_RANGE)
 			dev_err(amp_group->cal_dev,
 				"Calibration out of range\n");
-		if (status == CS35L41_CSPL_STATUS_INCOMPLETE)
+		if (status == CSPL_STATUS_INCOMPLETE)
 			dev_err(amp_group->cal_dev, "Calibration incomplete\n");
 		dev_info(amp_group->cal_dev, "R :\t\t%d (%llu.%04llu Ohms)\n",
-			 rdc, ohms >> CS35L41_CAL_RDC_RADIX,
-			 (ohms & (((1 << CS35L41_CAL_RDC_RADIX) - 1))) *
-			 10000 / (1 << CS35L41_CAL_RDC_RADIX));
+			 rdc, ohms >> CIRRUS_CAL_RDC_RADIX,
+			 (ohms & (((1 << CIRRUS_CAL_RDC_RADIX) - 1))) *
+			 10000 / (1 << CIRRUS_CAL_RDC_RADIX));
 		dev_info(amp_group->cal_dev, "Checksum:\t%d\n", checksum);
 		dev_info(amp_group->cal_dev, "Ambient:\t%d\n", temp);
 
@@ -295,14 +297,18 @@ static void cirrus_cal_complete_work(struct work_struct *work)
 
 		cirrus_amp_read_ctl(amp, "CSPL_STATE", WMFW_ADSP2_XM,
 				    CIRRUS_AMP_ALG_ID_CSPL, &cal_state);
-		if (cal_state == CS35L41_CSPL_STATE_ERROR)
+		if (cal_state == CSPL_STATE_ERROR)
 			dev_err(amp_group->cal_dev,
 				"Playback config load error\n");
 
 		regmap_multi_reg_write(regmap, post_config,
 				       amp->num_post_configs);
 
-		amp->cal.efs_cache_read = 0;
+		amp->cal.efs_cache_rdc = rdc;
+		amp->cal.efs_cache_vsc = vsc;
+		amp->cal.efs_cache_isc = isc;
+		amp_group->efs_cache_temp = temp;
+		amp->cal.efs_cache_valid = 1;
 
 		kfree(playback_config_filename);
 	}
@@ -380,7 +386,7 @@ static void cirrus_cal_v_val_complete(struct cirrus_amp *amps, int num_amps,
 		cirrus_amp_read_ctl(&amp_group->amps[amp], "CSPL_STATE",
 				    WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL,
 				    &cal_state);
-		if (cal_state == CS35L41_CSPL_STATE_ERROR)
+		if (cal_state == CSPL_STATE_ERROR)
 			dev_err(amp_group->cal_dev,
 				"Playback config load error\n");
 
@@ -402,8 +408,8 @@ static int cirrus_cal_get_power_temp(void)
 	if (!psy) {
 		dev_warn(amp_group->cal_dev,
 			 "failed to get battery, assuming %d\n",
-			 CS35L40_CAL_AMBIENT_DEFAULT);
-		return CS35L40_CAL_AMBIENT_DEFAULT;
+			 CIRRUS_CAL_AMBIENT_DEFAULT);
+		return CIRRUS_CAL_AMBIENT_DEFAULT;
 	}
 
 	power_supply_get_property(psy, POWER_SUPPLY_PROP_TEMP, &value);
@@ -415,9 +421,9 @@ static void cirrus_cal_vimon_cal_start(struct cirrus_amp *amp)
 {
 
 	cirrus_amp_write_ctl(amp, "VIMON_CLASS_H_CAL_DELAY", WMFW_ADSP2_XM,
-			     amp->vimon_alg_id, CS35L41_CLASSH_DELAY_50MS);
+			     amp->vimon_alg_id, CIRRUS_CAL_CLASSH_DELAY_50MS);
 	cirrus_amp_write_ctl(amp, "VIMON_CLASS_D_CAL_DELAY", WMFW_ADSP2_XM,
-			     amp->vimon_alg_id, CS35L41_CLASSD_DELAY_50MS);
+			     amp->vimon_alg_id, CIRRUS_CAL_CLASSD_DELAY_50MS);
 
 	cirrus_amp_write_ctl(amp, "VIMON_CAL_STATE", WMFW_ADSP2_XM,
 			     amp->vimon_alg_id, 0);
@@ -443,7 +449,7 @@ static int cirrus_cal_vimon_cal_complete(struct cirrus_amp *amp)
 	isc_in_range = cirrus_cal_isc_in_range(isc);
 
 	if (!vsc_in_range || !isc_in_range)
-		vimon_cal = CS35L41_CAL_VIMON_STATUS_INVALID;
+		vimon_cal = CIRRUS_CAL_VIMON_STATUS_INVALID;
 
 	return vimon_cal;
 }
@@ -530,120 +536,33 @@ static void cirrus_cal_redc_start(struct cirrus_amp *amp)
 	if (timeout == 0)
 		dev_err(amp->component->dev, "REINIT done not found\n");
 
-	msleep(100);
-
 	kfree(cal_config_filename);
-}
-
-static int cirrus_cal_read_file(char *filename, int *value)
-{
-#if 0
-	struct file *cal_filp;
-	char str[12] = {0};
-#endif
-	int ret;
-
-	ret = -EIO;
-
-	dev_info(amp_group->cal_dev,
-				"temp return EIO cirrus_cal_read_file\n");
-	return ret;
-
-#if 0
-	cal_filp = filp_open(filename, O_RDONLY, 0660);
-	if (IS_ERR(cal_filp)) {
-		ret = PTR_ERR(cal_filp);
-		dev_err(amp_group->cal_dev,
-			"Failed to open calibration file %s: %d\n", filename,
-			ret);
-		return ret;
-	}
-
-	ret = kernel_read(cal_filp, str, sizeof(str),
-						&cal_filp->f_pos);
-	if (ret != sizeof(str)) {
-		dev_err(amp_group->cal_dev,
-			"Failed to read calibration file %s\n", filename);
-		ret = -EIO;
-		goto err_open;
-	}
-
-	ret = 0;
-
-	if (kstrtoint(str, 0, value)) {
-		dev_err(amp_group->cal_dev, "Failed to parse calibration\n");
-		ret = -EINVAL;
-	}
-
-err_open:
-	filp_close(cal_filp, current->files);
-
-	return ret;
-#endif
 }
 
 int cirrus_cal_apply(const char *mfd_suffix)
 {
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(mfd_suffix);
 	unsigned int temp, rdc, status, checksum, vsc, isc;
-	unsigned int vimon_cal_status = CS35L41_CAL_VIMON_STATUS_SUCCESS;
+	unsigned int vimon_cal_status = CIRRUS_CAL_VIMON_STATUS_SUCCESS;
 	int ret = 0;
-	char *efs_name;
 
 	if (!amp)
 		return 0;
 
-	efs_name = kzalloc(PAGE_SIZE, GFP_KERNEL);
-
-	if (amp->cal.efs_cache_read == 1) {
+	if (amp->cal.efs_cache_valid == 1) {
 		rdc = amp->cal.efs_cache_rdc;
 		vsc = amp->cal.efs_cache_vsc;
 		isc = amp->cal.efs_cache_isc;
-		vimon_cal_status = amp->cal.efs_cache_vimon_cal;
+		vimon_cal_status = CIRRUS_CAL_VIMON_STATUS_SUCCESS;
 		temp = amp_group->efs_cache_temp;
 	} else {
-		snprintf(efs_name, PAGE_SIZE, "%s%s",
-			 CIRRUS_CAL_RDC_SAVE_LOCATION, mfd_suffix);
 
-		ret = cirrus_cal_read_file(efs_name, &rdc);
-		if (ret < 0) {
-			dev_err(amp_group->cal_dev,
-				"No saved rdc, writing default = %u\n",
-				amp->default_redc);
-			rdc = amp->default_redc;
-		}
-
-		ret = cirrus_cal_read_file(CIRRUS_CAL_TEMP_SAVE_LOCATION,
-					   &temp);
-		if (ret < 0) {
-			dev_err(amp_group->cal_dev,
-				"No saved temp, writing default\n");
-			temp = CS35L40_CAL_AMBIENT_DEFAULT;
-		}
-
-		snprintf(efs_name, PAGE_SIZE, "%s%s",
-			 CIRRUS_CAL_VSC_SAVE_LOCATION, mfd_suffix);
-
-		ret = cirrus_cal_read_file(efs_name, &vsc);
-		if (ret < 0) {
-			dev_err(amp_group->cal_dev, "No saved vsc Left\n");
-			vimon_cal_status = CS35L41_CAL_VIMON_STATUS_INVALID;
-		}
-
-		snprintf(efs_name, PAGE_SIZE, "%s%s",
-			 CIRRUS_CAL_ISC_SAVE_LOCATION, mfd_suffix);
-
-		ret = cirrus_cal_read_file(efs_name, &isc);
-		if (ret < 0) {
-			dev_err(amp_group->cal_dev, "No saved isc Left\n");
-			vimon_cal_status = CS35L41_CAL_VIMON_STATUS_INVALID;
-		}
-
+		dev_info(amp_group->cal_dev,
+				"No saved EFS, writing defaults\n");
+		rdc = amp->default_redc;
+		temp = CIRRUS_CAL_AMBIENT_DEFAULT;
+		vimon_cal_status = CIRRUS_CAL_VIMON_STATUS_INVALID;
 		amp->cal.efs_cache_rdc = rdc;
-		amp->cal.efs_cache_vsc = vsc;
-		amp->cal.efs_cache_isc = isc;
-		amp->cal.efs_cache_vimon_cal = vimon_cal_status;
-		amp->cal.efs_cache_read = 1;
 		amp_group->efs_cache_temp = temp;
 	}
 
@@ -669,14 +588,15 @@ int cirrus_cal_apply(const char *mfd_suffix)
 	if (!amp->perform_vimon_cal) {
 		cirrus_amp_write_ctl(amp, "VIMON_CAL_STATE", WMFW_ADSP2_XM,
 				     amp->vimon_alg_id,
-				     CS35L41_CAL_VIMON_STATUS_INVALID);
+				     CIRRUS_CAL_VIMON_STATUS_INVALID);
 		goto skip_vimon_cal;
 	}
 
 	cirrus_amp_write_ctl(amp, "VIMON_CAL_STATE", WMFW_ADSP2_XM,
 			     amp->vimon_alg_id, vimon_cal_status);
 
-	if (vimon_cal_status != CS35L41_CAL_VIMON_STATUS_INVALID) {
+	if (amp->perform_vimon_cal &&
+		vimon_cal_status != CIRRUS_CAL_VIMON_STATUS_INVALID) {
 		dev_info(amp_group->cal_dev,
 			 "VIMON Cal status=%d vsc=%x isc=%x\n",
 			 vimon_cal_status, vsc, isc);
@@ -689,12 +609,75 @@ int cirrus_cal_apply(const char *mfd_suffix)
 	}
 
 skip_vimon_cal:
-	kfree(efs_name);
-
 	return ret;
 }
 EXPORT_SYMBOL_GPL(cirrus_cal_apply);
 
+int cirrus_cal_read_temp(const char *mfd_suffix)
+{
+	struct cirrus_amp *amp;
+	int reg = 0, ret;
+	unsigned int halo_state;
+	unsigned int global_en;
+
+	amp = cirrus_get_amp_from_suffix(mfd_suffix);
+
+	if (!amp)
+		goto err;
+
+	regmap_read(amp->regmap, amp->global_en, &global_en);
+
+	if ((global_en & amp->global_en_mask) == 0)
+		goto err;
+
+	regmap_read(amp->regmap, amp->mbox_sts, &halo_state);
+
+	if (halo_state != CSPL_MBOX_STS_RUNNING)
+		goto err;
+
+	if (amp_group->cal_running)
+		goto err;
+
+	ret = cirrus_cal_logger_get_variable(amp,
+			CIRRUS_CAL_RTLOG_ID_TEMP,
+			&reg);
+	if (ret == 0) {
+		if (reg == 0)
+			cirrus_cal_logger_get_variable(amp,
+				CIRRUS_CAL_RTLOG_ID_TEMP,
+				&reg);
+		dev_info(amp_group->cal_dev,
+			"Read temp: %d.%04d degrees C\n",
+			reg >> CIRRUS_CAL_RTLOG_RADIX_TEMP,
+			(reg & (((1 << CIRRUS_CAL_RTLOG_RADIX_TEMP) - 1))) *
+			10000 / (1 << CIRRUS_CAL_RTLOG_RADIX_TEMP));
+		return (reg >> CIRRUS_CAL_RTLOG_RADIX_TEMP);
+	}
+err:
+	return -1;
+}
+EXPORT_SYMBOL_GPL(cirrus_cal_read_temp);
+
+int cirrus_cal_set_surface_temp(const char *suffix, int temperature)
+{
+	unsigned int global_en;
+	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
+
+	if (!amp)
+		return -EINVAL;
+
+	regmap_read(amp->regmap, amp->global_en, &global_en);
+
+	if ((global_en & amp->global_en_mask) == 0)
+		return -EINVAL;
+
+	dev_info(amp->component->dev, "Set surface temp: %d degrees\n", temperature);
+	cirrus_amp_write_ctl(amp, "CSPL_SURFACE_TEMP", WMFW_ADSP2_XM,
+				CIRRUS_AMP_ALG_ID_CSPL, temperature);
+	return 0;
+}
+
+EXPORT_SYMBOL_GPL(cirrus_cal_set_surface_temp);
 static int cirrus_cal_start(void)
 {
 	int redc_cal_start_retries, vimon_cal_retries = 0;
@@ -764,7 +747,7 @@ static int cirrus_cal_start(void)
 				ret = cirrus_cal_vimon_cal_complete(
 							&amp_group->amps[amp]);
 
-				if (ret != CS35L41_CAL_VIMON_STATUS_SUCCESS) {
+				if (ret != CIRRUS_CAL_VIMON_STATUS_SUCCESS) {
 					vimon_calibration_failed = true;
 					dev_info(amp_group->cal_dev,
 					  "VIMON Calibration Error %s (%s)\n",
@@ -784,20 +767,19 @@ static int cirrus_cal_start(void)
 		regmap = amp_group->amps[amp].regmap;
 
 		cirrus_cal_redc_start(&amp_group->amps[amp]);
-		msleep(90);
 
 		cirrus_amp_read_ctl(&amp_group->amps[amp], "CSPL_STATE",
 			WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, &cal_state);
 
 		redc_cal_start_retries = 5;
-		while (cal_state == CS35L41_CSPL_STATE_ERROR &&
+		while (cal_state == CSPL_STATE_ERROR &&
 						redc_cal_start_retries > 0) {
-			if (cal_state == CS35L41_CSPL_STATE_ERROR)
+			if (cal_state == CSPL_STATE_ERROR)
 				dev_err(amp_group->cal_dev,
 					"Calibration load error\n");
 
 			cirrus_cal_redc_start(&amp_group->amps[amp]);
-			msleep(90);
+
 			cirrus_amp_read_ctl(&amp_group->amps[amp], "CSPL_STATE",
 				WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, &cal_state);
 			redc_cal_start_retries--;
@@ -869,7 +851,7 @@ static ssize_t cirrus_cal_status_store(struct device *dev,
 	dev_dbg(amp_group->cal_dev, "Calibration prepare complete\n");
 
 	queue_delayed_work(system_unbound_wq, &amp_group->cal_complete_work,
-			   msecs_to_jiffies(CS35L41_CAL_COMPLETE_DELAY_MS));
+			   msecs_to_jiffies(CIRRUS_CAL_COMPLETE_DELAY_MS));
 
 err:
 	mutex_unlock(&amp_group->cal_lock);
@@ -896,7 +878,7 @@ static ssize_t cirrus_cal_v_status_store(struct device *dev,
 	unsigned int vmax[CIRRUS_MAX_AMPS];
 	unsigned int vmin[CIRRUS_MAX_AMPS];
 	unsigned int cal_state;
-	int ret = 0, i, j, reg, prepare, retries, num_amps;
+	int ret = 0, i, j, reg, prepare, retries, num_amps, count;
 	const char *suffix;
 	struct cirrus_amp *amps;
 	bool separate = false;
@@ -955,19 +937,18 @@ static ssize_t cirrus_cal_v_status_store(struct device *dev,
 				       amps[i].num_pre_configs);
 
 		cirrus_cal_redc_start(&amps[i]);
-		msleep(90);
 
 		cirrus_amp_read_ctl(&amps[i], "CSPL_STATE",
 			WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, &cal_state);
 
 		retries = 5;
-		while (cal_state == CS35L41_CSPL_STATE_ERROR && retries > 0) {
-			if (cal_state == CS35L41_CSPL_STATE_ERROR)
+		while (cal_state == CSPL_STATE_ERROR && retries > 0) {
+			if (cal_state == CSPL_STATE_ERROR)
 				dev_err(amp_group->cal_dev,
 					"Calibration load error\n");
 
 			cirrus_cal_redc_start(&amps[i]);
-			msleep(90);
+
 			cirrus_amp_read_ctl(&amps[i], "CSPL_STATE",
 				WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, &cal_state);
 			retries--;
@@ -986,6 +967,7 @@ static ssize_t cirrus_cal_v_status_store(struct device *dev,
 	dev_info(amp_group->cal_dev, "V validation prepare complete\n");
 
 	for (i = 0; i < 1000; i++) {
+		count = 0;
 		for (j = 0; j < num_amps; j++) {
 			if (amps[j].v_val_separate && !separate)
 				continue;
@@ -998,12 +980,16 @@ static ssize_t cirrus_cal_v_status_store(struct device *dev,
 				vmax[j] = reg;
 			if (reg < vmin[j])
 				vmin[j] = reg;
-		}
 
-		cirrus_amp_read_ctl(&amp_group->amps[0], "CAL_STATUS",
+				cirrus_amp_read_ctl(&amp_group->amps[j], "CAL_STATUS",
 					WMFW_ADSP2_XM,
 					CIRRUS_AMP_ALG_ID_CSPL, &reg);
-		if (reg != 0 && reg != CS35L41_CSPL_STATUS_INCOMPLETE) {
+
+				if (reg != 0 && reg != CSPL_STATUS_INCOMPLETE)
+					count++;
+			}
+
+		if (count == num_amps) {
 			dev_info(amp_group->cal_dev,
 			"V Validation complete (%d)\n", i);
 			break;
@@ -1048,7 +1034,7 @@ err:
 	return size;
 }
 
-#ifdef CS35L41_FACTORY_RECOVERY_SYSFS
+#ifdef CIRRUS_CAL_FACTORY_RECOVERY_SYSFS
 static ssize_t cirrus_cal_reinit_show(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -1072,15 +1058,18 @@ static ssize_t cirrus_cal_reinit_store(struct device *dev,
 	if (ret == 0 && reinit == 1) {
 		mutex_lock(&amp_group->cal_lock);
 
-		for (i = 0; i < amp_group->num_amps; i++)
-			cs35l41_reinit(amp_group->amps[i].component);
+		for (i = 0; i < amp_group->num_amps; i++) {
+			if (amp_group->amps[i].amp_reinit != NULL)
+				amp_group->amps[i].amp_reinit(
+					amp_group->amps[i].component);
+		}
 
 		mutex_unlock(&amp_group->cal_lock);
 	}
 
 	return size;
 }
-#endif /* CS35L41_FACTORY_RECOVERY_SYSFS*/
+#endif /* CIRRUS_CAL_FACTORY_RECOVERY_SYSFS*/
 
 static ssize_t cirrus_cal_vval_show(struct device *dev,
 					struct device_attribute *attr,
@@ -1111,8 +1100,7 @@ static ssize_t cirrus_cal_rdc_show(struct device *dev,
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
 
 	if (amp) {
-		cirrus_amp_read_ctl(amp, "CAL_R",
-				WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, &rdc);
+		rdc = amp->cal.efs_cache_rdc;
 		return sprintf(buf, "%d", rdc);
 	} else
 		return 0;
@@ -1125,11 +1113,27 @@ static ssize_t cirrus_cal_rdc_store(struct device *dev,
 	int rdc, ret;
 	const char *suffix = &(attr->attr.name[strlen("rdc")]);
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
+	bool vimon_valid;
 
 	ret = kstrtos32(buf, 10, &rdc);
-	if (ret == 0 && amp)
-		cirrus_amp_write_ctl(amp, "CAL_R",
-				WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, rdc);
+	if (ret == 0 && amp) {
+		if (rdc < 0) {
+			amp->cal.efs_cache_vsc = 0;
+			amp->cal.efs_cache_isc = 0;
+			amp->cal.efs_cache_rdc = 0;
+			amp->cal.efs_cache_valid = 0;
+			return size;
+		}
+
+		amp->cal.efs_cache_rdc = rdc;
+
+		dev_info(dev, "EFS Cache RDC set: 0x%x\n", rdc);
+		vimon_valid = (!amp->perform_vimon_cal) || (amp->cal.efs_cache_vsc &&
+				amp->cal.efs_cache_isc);
+		if (amp->cal.efs_cache_rdc && amp_group->efs_cache_temp &&
+				vimon_valid)
+			amp->cal.efs_cache_valid = 1;
+	}
 	return size;
 }
 
@@ -1142,8 +1146,7 @@ static ssize_t cirrus_cal_vsc_show(struct device *dev,
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
 
 	if (amp) {
-		cirrus_amp_read_ctl(amp, "VSC", WMFW_ADSP2_XM,
-				    amp->vimon_alg_id, &vsc);
+		vsc = amp->cal.efs_cache_vsc;
 		return sprintf(buf, "%d", vsc);
 	} else
 		return 0;
@@ -1156,11 +1159,27 @@ static ssize_t cirrus_cal_vsc_store(struct device *dev,
 	int vsc, ret;
 	const char *suffix = &(attr->attr.name[strlen("vsc")]);
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
+	bool vimon_valid;
 
 	ret = kstrtos32(buf, 10, &vsc);
-	if (ret == 0 && amp)
-		cirrus_amp_write_ctl(amp, "VSC", WMFW_ADSP2_XM,
-				     amp->vimon_alg_id, vsc);
+	if (ret == 0 && amp) {
+		if (vsc < 0) {
+			amp->cal.efs_cache_vsc = 0;
+			amp->cal.efs_cache_isc = 0;
+			amp->cal.efs_cache_rdc = 0;
+			amp->cal.efs_cache_valid = 0;
+			return size;
+		}
+
+		amp->cal.efs_cache_vsc = vsc;
+
+		dev_info(dev, "EFS Cache VSC set: 0x%x\n", vsc);
+		vimon_valid = (!amp->perform_vimon_cal) || (amp->cal.efs_cache_vsc &&
+				amp->cal.efs_cache_isc);
+		if (amp->cal.efs_cache_rdc && amp_group->efs_cache_temp &&
+				vimon_valid)
+			amp->cal.efs_cache_valid = 1;
+	}
 	return size;
 }
 
@@ -1173,8 +1192,7 @@ static ssize_t cirrus_cal_isc_show(struct device *dev,
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
 
 	if (amp) {
-		cirrus_amp_read_ctl(amp, "ISC", WMFW_ADSP2_XM,
-				    amp->vimon_alg_id, &isc);
+		isc = amp->cal.efs_cache_isc;
 		return sprintf(buf, "%d", isc);
 	} else
 		return 0;
@@ -1187,11 +1205,27 @@ static ssize_t cirrus_cal_isc_store(struct device *dev,
 	int isc, ret;
 	const char *suffix = &(attr->attr.name[strlen("isc")]);
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
+	bool vimon_valid;
 
 	ret = kstrtos32(buf, 10, &isc);
-	if (ret == 0 && amp)
-		cirrus_amp_write_ctl(amp, "ISC", WMFW_ADSP2_XM,
-				     amp->vimon_alg_id, isc);
+	if (ret == 0 && amp) {
+		if (isc < 0) {
+			amp->cal.efs_cache_vsc = 0;
+			amp->cal.efs_cache_isc = 0;
+			amp->cal.efs_cache_rdc = 0;
+			amp->cal.efs_cache_valid = 0;
+			return size;
+		}
+
+		amp->cal.efs_cache_isc = isc;
+
+		dev_info(dev, "EFS Cache ISC set: 0x%x\n", isc);
+		vimon_valid = (!amp->perform_vimon_cal) || (amp->cal.efs_cache_vsc &&
+				amp->cal.efs_cache_isc);
+		if (amp->cal.efs_cache_rdc && amp_group->efs_cache_temp &&
+				vimon_valid)
+			amp->cal.efs_cache_valid = 1;
+	}
 	return size;
 }
 
@@ -1204,8 +1238,7 @@ static ssize_t cirrus_cal_temp_show(struct device *dev,
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
 
 	if (amp) {
-		cirrus_amp_read_ctl(amp, "CAL_AMBIENT",
-				WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, &temp);
+		temp = amp_group->efs_cache_temp;
 		return sprintf(buf, "%d", temp);
 	} else
 		return 0;
@@ -1218,11 +1251,19 @@ static ssize_t cirrus_cal_temp_store(struct device *dev,
 	int temp, ret;
 	const char *suffix = &(attr->attr.name[strlen("temp")]);
 	struct cirrus_amp *amp = cirrus_get_amp_from_suffix(suffix);
+	bool vimon_valid;
 
 	ret = kstrtos32(buf, 10, &temp);
-	if (ret == 0 && amp)
-		cirrus_amp_write_ctl(amp, "CAL_AMBIENT",
-				WMFW_ADSP2_XM, CIRRUS_AMP_ALG_ID_CSPL, temp);
+	if (ret == 0 && amp) {
+		amp_group->efs_cache_temp = temp;
+
+		dev_info(dev, "EFS Cache temp set: %d\n", temp);
+		vimon_valid = (!amp->perform_vimon_cal) || (amp->cal.efs_cache_vsc &&
+				amp->cal.efs_cache_isc);
+		if (amp->cal.efs_cache_rdc && amp_group->efs_cache_temp &&
+				vimon_valid)
+			amp->cal.efs_cache_valid = 1;
+	}
 	return size;
 }
 
@@ -1280,63 +1321,16 @@ static ssize_t cirrus_cal_set_status_store(struct device *dev,
 	return 0;
 }
 
-static ssize_t cirrus_cal_rdc_stored_show(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	unsigned int rdc = 0;
-	const char *suffix = &(attr->attr.name[strlen("rdc_stored")]);
-	char *efs_name;
-
-	efs_name = kzalloc(PAGE_SIZE, GFP_KERNEL);
-	snprintf(efs_name,
-		PAGE_SIZE, "%s%s",
-		CIRRUS_CAL_RDC_SAVE_LOCATION,
-		suffix);
-
-	cirrus_cal_read_file(efs_name, &rdc);
-
-	kfree(efs_name);
-
-	return sprintf(buf, "%d", rdc);
-}
-
-static ssize_t cirrus_cal_rdc_stored_store(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t size)
-{
-	return 0;
-}
-
-static ssize_t cirrus_cal_temp_stored_show(struct device *dev,
-					struct device_attribute *attr,
-					char *buf)
-{
-	unsigned int temp_stored = 0;
-
-	cirrus_cal_read_file(CIRRUS_CAL_TEMP_SAVE_LOCATION, &temp_stored);
-	return sprintf(buf, "%d", temp_stored);
-}
-
-static ssize_t cirrus_cal_temp_stored_store(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf, size_t size)
-{
-	return 0;
-}
-
 static DEVICE_ATTR(version, 0444, cirrus_cal_version_show,
 				cirrus_cal_version_store);
 static DEVICE_ATTR(status, 0664, cirrus_cal_status_show,
 				cirrus_cal_status_store);
 static DEVICE_ATTR(v_status, 0664, cirrus_cal_v_status_show,
 				cirrus_cal_v_status_store);
-static DEVICE_ATTR(temp_stored, 0444, cirrus_cal_temp_stored_show,
-				cirrus_cal_temp_stored_store);
-#ifdef CS35L41_FACTORY_RECOVERY_SYSFS
+#ifdef CIRRUS_CAL_FACTORY_RECOVERY_SYSFS
 static DEVICE_ATTR(reinit, 0664, cirrus_cal_reinit_show,
 				cirrus_cal_reinit_store);
-#endif /* CS35L41_FACTORY_RECOVERY_SYSFS */
+#endif /* CIRRUS_CAL_FACTORY_RECOVERY_SYSFS */
 
 static struct device_attribute v_val_attribute = {
 	.attr = {.mode = VERIFY_OCTAL_PERMISSIONS(0664)},
@@ -1380,11 +1374,6 @@ static struct device_attribute generic_amp_attrs[CIRRUS_CAL_NUM_ATTRS_AMP] = {
 		.show = cirrus_cal_set_status_show,
 		.store = cirrus_cal_set_status_store,
 	},
-	{
-		.attr = {.mode = VERIFY_OCTAL_PERMISSIONS(0444)},
-		.show = cirrus_cal_rdc_stored_show,
-		.store = cirrus_cal_rdc_stored_store,
-	},
 };
 
 static const char *generic_amp_attr_names[CIRRUS_CAL_NUM_ATTRS_AMP] = {
@@ -1394,18 +1383,16 @@ static const char *generic_amp_attr_names[CIRRUS_CAL_NUM_ATTRS_AMP] = {
 	"isc",
 	"temp",
 	"checksum",
-	"set_status",
-	"rdc_stored"
+	"set_status"
 };
 
 static struct attribute *cirrus_cal_attr_base[] = {
 	&dev_attr_version.attr,
 	&dev_attr_status.attr,
 	&dev_attr_v_status.attr,
-	&dev_attr_temp_stored.attr,
-#ifdef CS35L41_FACTORY_RECOVERY_SYSFS
+#ifdef CIRRUS_CAL_FACTORY_RECOVERY_SYSFS
 	&dev_attr_reinit.attr,
-#endif /* CS35L41_FACTORY_RECOVERY_SYSFS */
+#endif /* CIRRUS_CAL_FACTORY_RECOVERY_SYSFS */
 	NULL,
 };
 

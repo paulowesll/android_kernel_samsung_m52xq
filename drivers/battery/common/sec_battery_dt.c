@@ -81,6 +81,8 @@ int sec_bat_parse_dt_siop(
 			kzalloc(sizeof(*pdata->siop_wpc_fcc) * len, GFP_KERNEL);
 		ret = of_property_read_u32_array(np, "battery,siop_wpc_fcc",
 				pdata->siop_wpc_fcc, len);
+
+		pr_info("%s: parse siop_wpc_fcc, ret = %d, len = %d\n", __func__, ret, len);
 	}
 
 	ret = of_property_read_u32(np, "battery,siop_hv_wpc_icl",
@@ -97,6 +99,8 @@ int sec_bat_parse_dt_siop(
 			kzalloc(sizeof(*pdata->siop_hv_wpc_fcc) * len, GFP_KERNEL);
 		ret = of_property_read_u32_array(np, "battery,siop_hv_wpc_fcc",
 				pdata->siop_hv_wpc_fcc, len);
+
+		pr_info("%s: parse siop_hv_wpc_fcc, ret = %d, len = %d\n", __func__, ret, len);
 	}
 
 	len = of_property_count_u32_elems(np, "battery,siop_scenarios");
@@ -1977,7 +1981,7 @@ int sec_bat_parse_dt(struct device *dev,
 			&pdata->apdo_max_volt);
 	if (ret) {
 		pr_err("%s: apdo_max_volt is Empty\n", __func__);
-		pdata->apdo_max_volt = 10000; /* 10v */
+		pdata->apdo_max_volt = 11000; /* 11v */
 	}
 
 #if IS_ENABLED(CONFIG_DUAL_BATTERY)
@@ -2114,6 +2118,11 @@ int sec_bat_parse_dt(struct device *dev,
 				ret = pdata->main_bat_enb_gpio = of_get_named_gpio(np, "limiter,main_bat_enb_gpio", 0);
 				if (ret < 0)
 					pr_info("%s : can't get main_bat_enb_gpio\n", __func__);
+
+				/* MAIN_BATTERY_SW_EN2 */
+				ret = pdata->main_bat_enb2_gpio = of_get_named_gpio(np, "limiter,main_bat_enb2_gpio", 0);
+				if (ret < 0)
+					pr_info("%s : can't get main_bat_enb2_gpio\n", __func__);
 			}
 		}
 		np = of_find_node_by_name(NULL, "sec-dual-battery");
@@ -2144,6 +2153,9 @@ int sec_bat_parse_dt(struct device *dev,
 		len = len / sizeof(u32);
 		ret = of_property_read_u32_array(np, "battery,ignore_cisd_index",
 	                     pdata->ignore_cisd_index, len);
+		if (ret)
+			pr_err("%s failed to read ignore_cisd_index: %d\n",
+					__func__, ret);
 	} else {
 		pr_info("%s : battery,ignore_cisd_index is Empty\n", __func__);
 	}
@@ -2154,6 +2166,9 @@ int sec_bat_parse_dt(struct device *dev,
 		len = len / sizeof(u32);
 		ret = of_property_read_u32_array(np, "battery,ignore_cisd_index_d",
 	                     pdata->ignore_cisd_index_d, len);
+		if (ret)
+			pr_err("%s failed to read ignore_cisd_index_d: %d\n",
+					__func__, ret);
 	} else {
 		pr_info("%s : battery,ignore_cisd_index_d is Empty\n", __func__);
 	}

@@ -1,5 +1,5 @@
 /*
- * core.h  --  MFD includes for Cirrus Logic CS35L41 codecs
+ * core.h  --  MFD includes for Cirrus Logic Smart Amplifiers
  *
  * Copyright 2017 Cirrus Logic
  *
@@ -10,8 +10,8 @@
  * published by the Free Software Foundation.
  */
 
-#ifndef CS35L41_MFD_CORE_H
-#define CS35L41_MFD_CORE_H
+#ifndef CIRRUS_MFD_CORE_H
+#define CIRRUS_MFD_CORE_H
 
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
@@ -58,6 +58,7 @@ struct cirrus_amp_config {
 	bool perform_vimon_cal;
 	bool calibration_disable;
 	bool pwr_enable;
+	int (*amp_reinit)(struct snd_soc_component *component);
 };
 
 struct cirrus_bd {
@@ -75,11 +76,10 @@ struct cirrus_cal {
 	unsigned int efs_cache_rdc;
 	unsigned int efs_cache_vsc;
 	unsigned int efs_cache_isc;
-	unsigned int efs_cache_vimon_cal;
 	unsigned int v_validation;
 	unsigned int dsp_input1_cache;
 	unsigned int dsp_input2_cache;
-	int efs_cache_read;
+	int efs_cache_valid;
 };
 
 struct cirrus_pwr {
@@ -116,6 +116,7 @@ struct cirrus_amp {
 	bool perform_vimon_cal;
 	bool calibration_disable;
 	bool v_val_separate;
+	int (*amp_reinit)(struct snd_soc_component *component);
 };
 
 struct cirrus_amp_group {

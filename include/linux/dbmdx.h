@@ -60,7 +60,7 @@ struct dbmdx_platform_data {
 	const char			*va_preboot_firmware_name;
 	const char			*vqe_firmware_name;
 	const char			*vqe_non_overlay_firmware_name;
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	const char			*va_asrp_params_firmware_name;
 #endif
 	int				firmware_id;
@@ -74,7 +74,7 @@ struct dbmdx_platform_data {
 	unsigned int			va_cfg_values;
 	u32				*va_cfg_value;
 
-#ifdef DBMDX_VA_NS_SUPPORT
+#if IS_ENABLED(DBMDX_VA_NS_SUPPORT)
 	unsigned int			va_ns_supported;
 	unsigned int			mic_config_source;
 	unsigned int			va_ns_cfg_values;
@@ -124,10 +124,10 @@ struct dbmdx_platform_data {
 
 int dbmdx_get_samples(struct snd_soc_component *component,
 	char *buffer, unsigned int samples);
-int dbmdx_codec_lock(struct snd_soc_component *component);
+int dbmdx_component_lock(struct snd_soc_component *component);
 int dbmdx_start_pcm_streaming(struct snd_soc_component *component,
 	struct snd_pcm_substream *substream);
 int dbmdx_stop_pcm_streaming(struct snd_soc_component *component);
-int dbmdx_codec_unlock(struct snd_soc_component *component);
+int dbmdx_component_unlock(struct snd_soc_component *component);
 
 #endif

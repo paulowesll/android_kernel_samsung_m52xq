@@ -121,13 +121,6 @@ struct zram_stats {
 struct zram_wb_header {
 	u32 index;
 	u32 size;
-	unsigned long blk_idx;
-	unsigned long wb_jiffies;
-};
-
-struct wb_dbg {
-	unsigned long index;
-	unsigned long wb_jiffies;
 };
 
 struct zram_wb_work {
@@ -207,8 +200,6 @@ struct zram {
 	spinlock_t list_lock;
 	spinlock_t wb_table_lock;
 	spinlock_t bitmap_lock;
-	struct zwbs **zwbs;
-	struct wb_dbg *wb_dbg;
 	unsigned long *blk_bitmap;
 	struct mutex blk_bitmap_lock;
 #endif

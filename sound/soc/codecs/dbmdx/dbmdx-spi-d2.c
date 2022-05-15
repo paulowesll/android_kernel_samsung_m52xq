@@ -224,7 +224,7 @@ static int dbmd2_spi_boot(const void *fw_data, size_t fw_size,
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
+#if IS_ENABLED(CONFIG_PM_SLEEP)
 static int dbmdx_spi_suspend(struct device *dev)
 {
 	struct chip_interface *ci = spi_get_drvdata(to_spi_device(dev));
@@ -252,7 +252,7 @@ static int dbmdx_spi_resume(struct device *dev)
 #define dbmdx_spi_resume NULL
 #endif /* CONFIG_PM_SLEEP */
 
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM)
 static int dbmdx_spi_runtime_suspend(struct device *dev)
 {
 	struct chip_interface *ci = spi_get_drvdata(to_spi_device(dev));
@@ -312,7 +312,7 @@ static const struct of_device_id dbmd2_spi_of_match[] = {
 	{ .compatible = "dspg,dbmd2-spi", },
 	{},
 };
-#ifdef CONFIG_SND_SOC_DBMDX
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX)
 MODULE_DEVICE_TABLE(of, dbmd2_spi_of_match);
 #endif
 
@@ -328,7 +328,7 @@ static struct spi_driver dbmd2_spi_driver = {
 		.name = "dbmd2-spi",
 		.bus	= &spi_bus_type,
 		.owner = THIS_MODULE,
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 		.of_match_table = dbmd2_spi_of_match,
 #endif
 		.pm = &dbmdx_spi_pm,
@@ -338,7 +338,7 @@ static struct spi_driver dbmd2_spi_driver = {
 	.id_table = dbmd2_spi_id,
 };
 
-#ifdef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && !IS_MODULE(CONFIG_SND_SOC_DBMDX))
 static int __init dbmd2_modinit(void)
 {
 	return spi_register_driver(&dbmd2_spi_driver);

@@ -18,7 +18,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 #include <linux/of.h>
 #endif
 #include <linux/tty.h>
@@ -850,7 +850,7 @@ static void uart_transport_enable(struct dbmdx_private *p, bool enable)
 
 	if (enable) {
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 		if (uart_p->ps_nosuspend_wl)
 			__pm_stay_awake(uart_p->ps_nosuspend_wl);
 #endif
@@ -938,7 +938,7 @@ static void uart_transport_enable(struct dbmdx_private *p, bool enable)
 		}
 
 	} else {
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 		if (uart_p->ps_nosuspend_wl)
 			__pm_relax(uart_p->ps_nosuspend_wl);
 #endif
@@ -1308,7 +1308,7 @@ static int uart_set_write_chunk_size(struct dbmdx_private *p, u32 size)
 
 int uart_common_probe(struct platform_device *pdev, const char threadnamefmt[])
 {
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	struct device_node *np;
 #endif
 	int ret;
@@ -1325,7 +1325,7 @@ int uart_common_probe(struct platform_device *pdev, const char threadnamefmt[])
 	p->dev = &pdev->dev;
 
 	p->chip.pdata = p;
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	np = p->dev->of_node;
 	if (!np) {
 		dev_err(p->dev, "%s: no devicetree entry\n", __func__);
@@ -1358,7 +1358,7 @@ int uart_common_probe(struct platform_device *pdev, const char threadnamefmt[])
 	pdata = dev_get_platdata(&pdev->dev);
 #endif
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "read-chunk-size",
 		&pdata->read_chunk_size);
 	if (ret != 0) {
@@ -1379,7 +1379,7 @@ int uart_common_probe(struct platform_device *pdev, const char threadnamefmt[])
 	dev_info(p->dev, "%s: Setting uart read chunk to %u bytes\n",
 			__func__, pdata->read_chunk_size);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "write-chunk-size",
 		&pdata->write_chunk_size);
 	if (ret != 0) {
@@ -1405,7 +1405,7 @@ int uart_common_probe(struct platform_device *pdev, const char threadnamefmt[])
 	init_completion(&p->uart_done);
 	atomic_set(&p->stop_uart_probing, 0);
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	p->ps_nosuspend_wl =
 			wakeup_source_create("dbmdx_nosuspend_wakelock_uart");
 
@@ -1477,7 +1477,7 @@ int uart_common_remove(struct platform_device *pdev)
 
 	dev_set_drvdata(p->dev, NULL);
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	if (p->ps_nosuspend_wl)	{
 		wakeup_source_remove(p->ps_nosuspend_wl);
 		wakeup_source_destroy(p->ps_nosuspend_wl);

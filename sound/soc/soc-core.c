@@ -887,10 +887,10 @@ static int soc_bind_dai_link(struct snd_soc_card *card,
 	if (dai_link->ignore)
 		return 0;
 
-	dev_err(card->dev, "ASoC: binding %s\n", dai_link->name);
+	dev_dbg(card->dev, "ASoC: binding %s\n", dai_link->name);
 
 	if (soc_is_dai_link_bound(card, dai_link)) {
-		dev_err(card->dev, "ASoC: dai link %s already bound\n",
+		dev_dbg(card->dev, "ASoC: dai link %s already bound\n",
 			dai_link->name);
 		return 0;
 	}
@@ -904,13 +904,13 @@ static int soc_bind_dai_link(struct snd_soc_card *card,
 	if (!rtd->cpu_dai) {
 #ifdef CONFIG_AUDIO_QGKI
 		if (dai_link->cpus->dai_name)
-			dev_info(card->dev, "ASoC: vatsal1 CPU DAI %s not registered\n",
+			dev_info(card->dev, "ASoC: CPU DAI %s not registered\n",
 				dai_link->cpus->dai_name);
 		else if (dai_link->cpus->of_node)
-			dev_info(card->dev,  "ASoC: vatsal2 CPU DAI %s not registered\n",
+			dev_info(card->dev,  "ASoC: CPU DAI %s not registered\n",
 				dai_link->cpus->of_node->full_name);
 #else
-		dev_info(card->dev, "ASoC: vatsal3 CPU DAI %s not registered\n",
+		dev_info(card->dev, "ASoC: CPU DAI %s not registered\n",
 			dai_link->cpus->dai_name);
 #endif
 		goto _err_defer;
@@ -922,7 +922,7 @@ static int soc_bind_dai_link(struct snd_soc_card *card,
 	for_each_link_codecs(dai_link, i, codec) {
 		rtd->codec_dais[i] = snd_soc_find_dai(codec);
 		if (!rtd->codec_dais[i]) {
-			dev_info(card->dev, "ASoC: vatsal4 CODEC DAI %s not registered\n",
+			dev_info(card->dev, "ASoC: CODEC DAI %s not registered\n",
 				 codec->dai_name);
 			goto _err_defer;
 		}
@@ -3205,7 +3205,7 @@ int snd_soc_of_parse_audio_routing(struct snd_soc_card *card,
 	if (!routes) {
 		dev_err(card->dev,
 			"ASoC: Could not allocate DAPM route table\n");
-		return -EINVAL;
+		return -ENOMEM;
 	}
 
 	for (i = 0; i < num_routes; i++) {

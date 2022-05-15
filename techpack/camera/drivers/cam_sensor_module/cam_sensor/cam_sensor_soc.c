@@ -84,7 +84,7 @@ int cam_sensor_get_dt_camera_info(
 #if defined(CONFIG_SAMSUNG_REAR_QUADRA)
 	else if (s_ctrl->id == SEC_TELE2_SENSOR)
 		cam_info = rear4_cam_info;
-#if defined (CONFIG_SEC_A52SXQ_PROJECT)
+#if defined (CONFIG_SEC_A52SXQ_PROJECT) || defined(CONFIG_SEC_A73XQ_PROJECT)
 	else if (s_ctrl->id == SEC_MACRO_SENSOR)
 		cam_info = rear4_cam_info;
 #endif

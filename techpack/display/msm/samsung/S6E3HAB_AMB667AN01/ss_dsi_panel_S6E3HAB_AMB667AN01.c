@@ -417,6 +417,7 @@ static int dsi_update_mdnie_data(struct samsung_display_driver_data *vdd)
 	mdnie_data->DSI_RGB_SENSOR_MDNIE_2 = DSI_RGB_SENSOR_MDNIE_2;
 	mdnie_data->DSI_RGB_SENSOR_MDNIE_3 = DSI_RGB_SENSOR_MDNIE_3;
 	mdnie_data->DSI_TRANS_DIMMING_MDNIE = DSI_RGB_SENSOR_MDNIE_3;
+	mdnie_data->dsi_trans_dimming_data_index = MDNIE_TRANS_DIMMING_DATA_INDEX;
 	mdnie_data->DSI_UI_DYNAMIC_MDNIE_2 = DSI_UI_DYNAMIC_MDNIE_2;
 	mdnie_data->DSI_UI_STANDARD_MDNIE_2 = DSI_UI_STANDARD_MDNIE_2;
 	mdnie_data->DSI_UI_AUTO_MDNIE_2 = DSI_UI_AUTO_MDNIE_2;
@@ -606,7 +607,7 @@ static struct dsi_panel_cmd_set *ss_acl_on_hbm(struct samsung_display_driver_dat
 		return NULL;
 	}
 
-	pcmds->cmds[1].ss_txbuf[6] = 0x26;	/* ACL 8% in HBM */
+	pcmds->cmds[0].ss_txbuf[6] = 0x26;	/* ACL 8% in HBM */
 
 	LCD_INFO(vdd, "gradual_acl: %d, acl per: 0x%x\n",
 			vdd->br_info.gradual_acl_val, pcmds->cmds[0].ss_txbuf[6]);
@@ -629,7 +630,7 @@ static struct dsi_panel_cmd_set *ss_acl_on(struct samsung_display_driver_data *v
 		return NULL;
 	}
 
-	pcmds->cmds[1].ss_txbuf[6] = 0x48;	/* ACL 15% in normal brightness */
+	pcmds->cmds[0].ss_txbuf[6] = 0x48;	/* ACL 15% in normal brightness */
 
 	LCD_INFO(vdd, "gradual_acl: %d, acl per: 0x%x\n",
 			vdd->br_info.gradual_acl_val, pcmds->cmds[0].ss_txbuf[6]);

@@ -24,7 +24,7 @@
 #include <sound/pcm.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 #include <linux/of.h>
 #endif
 
@@ -64,7 +64,7 @@ static struct snd_soc_dai_link board_dbmdx_dai_link[] = {
 		/* asoc Codec-Dai device name */
 		.codecs		= codecs,
 		.num_codecs	= ARRAY_SIZE(codecs),
-		/* asoc Platform-Dai deivce name */
+		/* asoc Platform-Dai device name */
 		.platforms	= platforms,
 		.num_platforms	= ARRAY_SIZE(platforms),
 		.init		= board_dai_init,
@@ -84,7 +84,7 @@ static struct snd_soc_card dspg_dbmdx_card = {
 	.set_bias_level_post	= NULL,
 };
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 static int dbmdx_init_dai_link(struct snd_soc_card *card)
 {
 	int cnt;
@@ -201,7 +201,7 @@ static struct platform_driver board_dbmdx_snd_drv = {
 	.remove = dbmdx_snd_remove,
 };
 
-#ifdef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && !IS_MODULE(CONFIG_SND_SOC_DBMDX))
 static int __init board_dbmdx_mod_init(void)
 {
 	return platform_driver_register(&board_dbmdx_snd_drv);

@@ -47,13 +47,16 @@ module_param(oisfw_force_update, int, 0644);
 #define OIS_FW_VERSION_OFFSET	(0xAFED)
 #define OIS_MCU_VERSION_OFFSET	(0x80F8)
 #define OIS_MCU_VDRINFO_OFFSET	(0x807C)
-#define OIS_FW_PATH "/vendor/lib64/camera"
 #define OIS_MCU_FW_NAME "ois_mcu_stm32g_fw.bin"
 #define OIS_USER_DATA_START_ADDR (0xB400)
 #define OIS_FW_UPDATE_PACKET_SIZE (256)
 #define PROGCODE_SIZE			(1024 * 44)
 #define MAX_RETRY_COUNT 		 (3)
-#define OIS_GYRO_SCALE_FACTOR_LSM6DSO (114)
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
+#define OIS_GYRO_SCALE_FACTOR (131) //ICM-42632
+#else
+#define OIS_GYRO_SCALE_FACTOR (114) //LSM6DSO
+#endif
 
 extern char ois_fw_full[40];
 extern char ois_debug[40];
@@ -84,12 +87,6 @@ int total_fw_size;
  *  2. Target I2C slave dddress
  */
 const uint32_t sysboot_i2c_startup_delay = 50; /* msec */
-#if defined(CONFIG_SEC_A52SXQ_PROJECT)
-const uint16_t sysboot_i2c_slave_address = 0x62;
-#else
-const uint16_t sysboot_i2c_slave_address = 0x51;
-#endif
-
 /* STM32MCU PID */
 const uint16_t product_id = 0x460;
 
@@ -189,6 +186,7 @@ int sysboot_connect(struct cam_ois_ctrl_t *o_ctrl)
 void sysboot_disconnect(struct cam_ois_ctrl_t *o_ctrl)
 {
 	CAM_INFO(CAM_OIS, "sysboot disconnect");
+	CAM_DBG(CAM_OIS, "boot0_ctrl_gpio:%d reset_ctrl_gpio:%d",o_ctrl->boot0_ctrl_gpio,o_ctrl->reset_ctrl_gpio);
 	/* Change BOOT pins to Main flash */
 	gpio_direction_output(o_ctrl->boot0_ctrl_gpio, 0);
 	usleep_range(1000, 1100);
@@ -781,7 +779,11 @@ int sysboot_i2c_erase(struct cam_ois_ctrl_t *o_ctrl, uint32_t address, size_t le
 				msleep(BOOT_I2C_SYNC_RETRY_INTVL);
 				continue;
 			}
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
+			msleep(1300);
+#else
 			//msleep(2*32);
+#endif
 			/* wait for ACK response */
 			ret = sysboot_i2c_wait_ack(o_ctrl, BOOT_I2C_PAGE_ERASE_TMOUT(erase.count + 1));
 			if (ret < 0)
@@ -2539,7 +2541,19 @@ int32_t cam_ois_fw_update(struct cam_ois_ctrl_t *o_ctrl,
 		CAM_INFO(CAM_OIS, "progCode update success");
 	else
 		CAM_ERR(CAM_OIS, "progCode update fail");
-
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
+	ret = cam_ois_power_down(o_ctrl);
+	if (ret < 0) {
+		CAM_ERR(CAM_OIS, "OIS Power down failed");
+	}
+	msleep(200);
+	cam_ois_power_up(o_ctrl);
+	ret = cam_ois_power_up(o_ctrl);
+	if (ret < 0) {
+		CAM_ERR(CAM_OIS, "OIS Power up failed");
+	}
+	msleep(500);
+#else
 	/* s/w reset */
 	if (cam_ois_i2c_write(o_ctrl, DFLSCTRL, 0x01,
 		CAMERA_SENSOR_I2C_TYPE_WORD, CAMERA_SENSOR_I2C_TYPE_BYTE) < 0)
@@ -2549,6 +2563,7 @@ int32_t cam_ois_fw_update(struct cam_ois_ctrl_t *o_ctrl,
 		CAM_ERR(CAM_OIS, "[OIS_FW_DBG] s/w reset i2c write error : 0x000E");
 
 	msleep(50);
+#endif
 
 #if 0
 	/* Param init - Flash to Rumba */
@@ -2624,7 +2639,7 @@ int cam_ois_gyro_sensor_calibration(struct cam_ois_ctrl_t *o_ctrl,
 	uint32_t RcvData = 0;
 	int xgzero_val = 0, ygzero_val = 0;
 	int retries = 30;
-	int scale_factor = OIS_GYRO_SCALE_FACTOR_LSM6DSO;
+	int scale_factor = OIS_GYRO_SCALE_FACTOR;
 	uint32_t rcvStatus = 0x23;
 
 #if defined(CONFIG_SAMSUNG_OIS_Z_AXIS_CAL)
@@ -2725,7 +2740,7 @@ int cam_ois_gyro_sensor_noise_check(struct cam_ois_ctrl_t *o_ctrl,
 	uint32_t RcvData = 0;
 	int xgnoise_val = 0, ygnoise_val = 0;
 	int retries = 100;
-	int scale_factor = OIS_GYRO_SCALE_FACTOR_LSM6DSO;
+	int scale_factor = OIS_GYRO_SCALE_FACTOR;
 
 	if (!o_ctrl)
 		return 0;
@@ -2815,7 +2830,7 @@ int cam_ois_offset_test(struct cam_ois_ctrl_t *o_ctrl,
 	uint32_t val = 0;
 	int x_sum = 0, y_sum = 0, sum = 0;
 	int retries = 0, avg_count = 30;
-	int scale_factor = OIS_GYRO_SCALE_FACTOR_LSM6DSO;
+	int scale_factor = OIS_GYRO_SCALE_FACTOR;
 	uint32_t rcvStatus = 0x23;
 
 #if defined(CONFIG_SAMSUNG_OIS_Z_AXIS_CAL)
@@ -3329,6 +3344,13 @@ FW_UPDATE_RETRY:
 			}
 		}
 	}
+#if defined(CONFIG_SEC_A73XQ_PROJECT)
+	if (strncmp(o_ctrl->phone_ver, o_ctrl->module_ver, OIS_VER_SIZE) != 0)
+	{
+		is_mcu_nack = true;
+		CAM_INFO(CAM_OIS, "Force update OIS FW");
+	}
+#endif
 
 	if (oisfw_force_update > 0) {
 		is_mcu_nack = true;
@@ -3632,7 +3654,7 @@ int cam_ois_write_gyro_sensor_calibration(struct cam_ois_ctrl_t *o_ctrl)
 	int ret = 0;
 	uint32_t val = 0;
 	int xgzero_val = 0, ygzero_val = 0;
-	int scale_factor = OIS_GYRO_SCALE_FACTOR_LSM6DSO;
+	int scale_factor = OIS_GYRO_SCALE_FACTOR;
 	int raw_data_x = 0, raw_data_y = 0;
 #if defined(CONFIG_SAMSUNG_OIS_Z_AXIS_CAL)
 	int zgzero_val = 0;

@@ -2944,17 +2944,7 @@ static void va_macro_add_child_devices(struct work_struct *work)
 					__func__, ctrl_num);
 				goto fail_pdev_add;
 			}
-		}
 
-		ret = platform_device_add(pdev);
-		if (ret) {
-			dev_err(&pdev->dev,
-				"%s: Cannot add platform device\n",
-				__func__);
-			goto fail_pdev_add;
-		}
-
-		if (va_swr_master_node) {
 			temp = krealloc(swr_ctrl_data,
 					(ctrl_num + 1) * sizeof(
 					struct va_macro_swr_ctrl_data),
@@ -2967,10 +2957,19 @@ static void va_macro_add_child_devices(struct work_struct *work)
 			swr_ctrl_data[ctrl_num].va_swr_pdev = pdev;
 			ctrl_num++;
 			dev_dbg(&pdev->dev,
-				"%s: Added soundwire ctrl device(s)\n",
+				"%s: Adding soundwire ctrl device(s)\n",
 				__func__);
 			va_priv->swr_ctrl_data = swr_ctrl_data;
 		}
+
+		ret = platform_device_add(pdev);
+		if (ret) {
+			dev_err(&pdev->dev,
+				"%s: Cannot add platform device\n",
+				__func__);
+			goto fail_pdev_add;
+		}
+
 		if (va_priv->child_count < VA_MACRO_CHILD_DEVICES_MAX)
 			va_priv->pdev_child_devices[
 					va_priv->child_count++] = pdev;
@@ -3202,7 +3201,6 @@ static int va_macro_probe(struct platform_device *pdev)
 	va_macro_init_ops(&ops, va_io_base, va_without_decimation);
 	ops.clk_id_req = va_priv->default_clk_id;
 	ops.default_clk_id = va_priv->default_clk_id;
-	dev_err(&pdev->dev, "%s: register macro called\n", __func__);
 	ret = bolero_register_macro(&pdev->dev, VA_MACRO, &ops);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "%s: register macro failed\n", __func__);

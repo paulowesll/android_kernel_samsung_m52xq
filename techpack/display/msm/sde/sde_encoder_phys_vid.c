@@ -10,6 +10,9 @@
 #include "sde_formats.h"
 #include "dsi_display.h"
 #include "sde_trace.h"
+#include "sde_vbif.h"
+
+u32 g_vbif_counters_enabled = 0;
 
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 #include "ss_dsi_panel_common.h"
@@ -501,7 +504,7 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 	struct drm_connector *conn = phys_enc ? phys_enc->connector : NULL;
 	struct sde_connector *sde_conn;
 	struct dsi_display *disp;
-	struct samsung_display_driver_data *vdd = NULL;
+	struct samsung_display_driver_data *vdd;
 
 	if (conn) {
 		if (phys_enc->parent->encoder_type == DRM_MODE_ENCODER_DSI) {
@@ -537,6 +540,16 @@ static void sde_encoder_phys_vid_vblank_irq(void *arg, int irq_idx)
 #endif
 
 	SDE_ATRACE_BEGIN("vblank_irq");
+	if (phys_enc->sde_kms) {
+		if (!g_vbif_counters_enabled) {
+			sde_vbif_set_vbif_counters(phys_enc->sde_kms);
+			g_vbif_counters_enabled = 1;
+		} else {
+			sde_vbif_read_vbif_counters(phys_enc->sde_kms, true);
+		}
+	} else {
+		pr_err("ERROR not valid sde_kms during vblank\n");
+	}
 
 	/*
 	 * only decrement the pending flush count if we've actually flushed
@@ -605,7 +618,7 @@ static void sde_encoder_phys_vid_underrun_irq(void *arg, int irq_idx)
 	struct drm_connector *conn = phys_enc ? phys_enc->connector : NULL;
 	struct sde_connector *sde_conn;
 	struct dsi_display *disp;
-	struct samsung_display_driver_data *vdd = NULL;
+	struct samsung_display_driver_data *vdd;
 
 	if (conn) {
 		if (phys_enc->parent->encoder_type == DRM_MODE_ENCODER_DSI) {
@@ -626,7 +639,8 @@ static void sde_encoder_phys_vid_underrun_irq(void *arg, int irq_idx)
 #if IS_ENABLED(CONFIG_SEC_DISPLAYPORT)
 	if (secdp_get_hpd_status()) {
 		/* prints underrun log in case of DP connection */
-		SDE_ERROR("underrun while DP connection, %d\n", phys_enc->intf_idx);
+		SDE_ERROR("underrun while DP connection, intf:%d, type:%d\n",
+			phys_enc->intf_idx, phys_enc->parent->encoder_type);
 	}
 #endif
 
@@ -634,11 +648,24 @@ static void sde_encoder_phys_vid_underrun_irq(void *arg, int irq_idx)
 		phys_enc->parent_ops.handle_underrun_virt(phys_enc->parent,
 			phys_enc);
 
+	if (phys_enc->sde_kms) {
+		if (g_vbif_counters_enabled) {
+			// Only access the counters once they have been initialized by vblank
+			sde_vbif_read_vbif_counters(phys_enc->sde_kms, false);
+		} else {
+			// Not an error but the underrun happened before the vsync
+			SDE_EVT32(0xbeef1);
+		}
+	} else {
+		SDE_EVT32(0xbeef2);
+		pr_err("ERROR not valid sde_kms during underrun\n");
+	}
+
 #if defined(CONFIG_DISPLAY_SAMSUNG)
 	if (phys_enc->parent->encoder_type == DRM_MODE_ENCODER_DSI) {
 		SDE_DEBUG_VIDENC(to_sde_encoder_phys_vid(phys_enc), "underrun\n");
 #if defined(CONFIG_SEC_DEBUG)
-		if (sec_debug_is_enabled() && vdd && ss_panel_attach_get(vdd)) {
+		if (sec_debug_is_enabled() && ss_panel_attach_get(vdd)) {
 			SDE_EVT32(DRMID(phys_enc->parent), SDE_EVTLOG_FATAL);
 			SDE_DBG_DUMP_WQ("all", "dbg_bus", "vbif_dbg_bus", "panic");
 		}
@@ -779,6 +806,8 @@ static int sde_encoder_phys_vid_control_vblank_irq(
 			atomic_dec_return(&phys_enc->vblank_refcount) == 0) {
 		ret = sde_encoder_helper_unregister_irq(phys_enc,
 				INTR_IDX_VSYNC);
+		g_vbif_counters_enabled = 0;
+
 		if (ret)
 			atomic_inc_return(&phys_enc->vblank_refcount);
 	}
@@ -841,7 +870,7 @@ static void sde_encoder_phys_vid_enable(struct sde_encoder_phys *phys_enc)
 		return;
 	}
 	priv = phys_enc->parent->dev->dev_private;
-
+	g_vbif_counters_enabled = 0;
 	vid_enc = to_sde_encoder_phys_vid(phys_enc);
 	intf = phys_enc->hw_intf;
 	ctl = phys_enc->hw_ctl;
@@ -1131,7 +1160,7 @@ static void sde_encoder_phys_vid_disable(struct sde_encoder_phys *phys_enc)
 	struct drm_connector *conn = phys_enc ? phys_enc->connector : NULL;
 	struct sde_connector *sde_conn;
 	struct dsi_display *disp;
-	struct samsung_display_driver_data *vdd = NULL;
+	struct samsung_display_driver_data *vdd;
 	
 	if (conn) {
 		if (phys_enc->parent->encoder_type == DRM_MODE_ENCODER_DSI) {
@@ -1152,6 +1181,8 @@ static void sde_encoder_phys_vid_disable(struct sde_encoder_phys *phys_enc)
 		return;
 	}
 	priv = phys_enc->parent->dev->dev_private;
+
+	g_vbif_counters_enabled = 0;
 
 	vid_enc = to_sde_encoder_phys_vid(phys_enc);
 	if (!phys_enc->hw_intf || !phys_enc->hw_ctl) {

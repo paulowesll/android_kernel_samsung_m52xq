@@ -23,7 +23,7 @@
 #include "cs35l45_dsp_events.h"
 #include <sound/cs35l45.h>
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 #include <sound/cirrus/core.h>
 #include <sound/cirrus/big_data.h>
 #include <sound/cirrus/calibration.h>
@@ -180,7 +180,7 @@ static void cs35l45_dsp_pmu_work(struct work_struct *work)
 
 	cs35l45_set_csplmboxcmd(cs35l45, CSPL_MBOX_CMD_RESUME);
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 	cirrus_pwr_start(cs35l45->pdata.mfd_suffix);
 #endif
 	mutex_unlock(&cs35l45->dsp_power_lock);
@@ -196,7 +196,7 @@ static void cs35l45_dsp_pmd_work(struct work_struct *work)
 
 	cs35l45_set_csplmboxcmd(cs35l45, CSPL_MBOX_CMD_PAUSE);
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 	cirrus_pwr_stop(cs35l45->pdata.mfd_suffix);
 #endif
 
@@ -272,7 +272,7 @@ static int cs35l45_dsp_boot_ev(struct snd_soc_dapm_widget *w,
 			     CS35L45_CCM_PM_REMAP_MASK |
 			     CS35L45_CCM_CORE_RESET_MASK);
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 		cirrus_cal_apply(cs35l45->pdata.mfd_suffix);
 #endif
 
@@ -1131,7 +1131,7 @@ static int cs35l45_get_speaker_status(struct snd_kcontrol *kcontrol,
 }
 
 static const struct snd_kcontrol_new cs35l45_aud_controls[] = {
-#ifndef CONFIG_SND_SOC_CIRRUS_AMP
+#if !IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 	WM_ADSP_FW_CONTROL("DSP1", 0),
 #endif
 	WM_ADSP2_PRELOAD_SWITCH("DSP1", 1),
@@ -1919,7 +1919,7 @@ static int cs35l45_component_set_sysclk(struct snd_soc_component *component,
 	return cs35l45_set_sysclk(cs35l45, clk_id, freq);
 }
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 #define CS35L45_ALG_ID_VIMON	0xf205
 #define CS35L45_ALG_ID_HALO	0x4fa00
 #endif
@@ -1930,7 +1930,7 @@ static int cs35l45_component_probe(struct snd_soc_component *component)
 			snd_soc_component_get_drvdata(component);
 	struct snd_soc_dapm_context *dapm =
 			snd_soc_component_get_dapm(component);
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 	static struct reg_sequence cs35l45_cal_pre_config[] = {
 		{CS35L45_DSP1RX6_INPUT,	CS35L45_PCM_SRC_VDD_BSTMON},
 		{CS35L45_MIXER_NGATE_CH1_CFG,	0},
@@ -2019,7 +2019,7 @@ static int cs35l45_component_probe(struct snd_soc_component *component)
 
 	wm_adsp2_component_probe(&cs35l45->dsp, component);
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 	snd_soc_add_component_controls(component, &cs35l45->dsp.fw_ctrl, 1);
 #endif
 
@@ -2606,7 +2606,7 @@ static int cs35l45_parse_of_data(struct cs35l45_private *cs35l45)
 	if (!ret)
 		pdata->ngate_ch2_thr = val | CS35L45_VALID_PDATA;
 
-#ifdef CONFIG_SND_SOC_CIRRUS_AMP
+#if IS_ENABLED(CONFIG_SND_SOC_CIRRUS_AMP)
 	ret = of_property_read_string(node, "cirrus,mfd-suffix",
 				      &pdata->mfd_suffix);
 	if (ret < 0)

@@ -13,6 +13,1220 @@
 #include "stm_reg.h"
 
 #if IS_ENABLED(CONFIG_INPUT_SEC_SECURE_TOUCH)
+#if IS_ENABLED(CONFIG_GH_RM_DRV)
+static void stm_ts_trusted_touch_abort_handler(struct stm_ts_data *ts,
+						int error);
+static struct gh_acl_desc *stm_ts_vm_get_acl(enum gh_vm_names vm_name)
+{
+	struct gh_acl_desc *acl_desc;
+	gh_vmid_t vmid;
+
+	gh_rm_get_vmid(vm_name, &vmid);
+
+	acl_desc = kzalloc(offsetof(struct gh_acl_desc, acl_entries[1]),
+			GFP_KERNEL);
+	if (!acl_desc)
+		return ERR_PTR(ENOMEM);
+
+	acl_desc->n_acl_entries = 1;
+	acl_desc->acl_entries[0].vmid = vmid;
+	acl_desc->acl_entries[0].perms = GH_RM_ACL_R | GH_RM_ACL_W;
+
+	return acl_desc;
+}
+
+static struct gh_sgl_desc *stm_ts_vm_get_sgl(
+				struct trusted_touch_vm_info *vm_info)
+{
+	struct gh_sgl_desc *sgl_desc;
+	int i;
+
+	sgl_desc = kzalloc(offsetof(struct gh_sgl_desc,
+			sgl_entries[vm_info->iomem_list_size]), GFP_KERNEL);
+	if (!sgl_desc)
+		return ERR_PTR(ENOMEM);
+
+	sgl_desc->n_sgl_entries = vm_info->iomem_list_size;
+
+	for (i = 0; i < vm_info->iomem_list_size; i++) {
+		sgl_desc->sgl_entries[i].ipa_base = vm_info->iomem_bases[i];
+		sgl_desc->sgl_entries[i].size = vm_info->iomem_sizes[i];
+	}
+
+	return sgl_desc;
+}
+
+static int stm_ts_populate_vm_info(struct stm_ts_data *ts)
+{
+	int rc = 0;
+	struct trusted_touch_vm_info *vm_info;
+	struct device_node *np = ts->client->dev.of_node;
+	int num_regs, num_sizes = 0;
+
+	vm_info = kzalloc(sizeof(struct trusted_touch_vm_info), GFP_KERNEL);
+	if (!vm_info) {
+		rc = -ENOMEM;
+		goto error;
+	}
+
+	ts->vm_info = vm_info;
+	vm_info->vm_name = GH_TRUSTED_VM;
+	rc = of_property_read_u32(np, "trusted-touch-spi-irq", &vm_info->hw_irq);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to read trusted touch SPI irq:%d\n", rc);
+		goto vm_error;
+	}
+	num_regs = of_property_count_u32_elems(np, "trusted-touch-io-bases");
+	if (num_regs < 0) {
+		input_err(true, &ts->client->dev, "Invalid number of IO regions specified\n");
+		rc = -EINVAL;
+		goto vm_error;
+	}
+
+	num_sizes = of_property_count_u32_elems(np, "trusted-touch-io-sizes");
+	if (num_sizes < 0) {
+		input_err(true, &ts->client->dev, "Invalid number of IO regions specified\n");
+		rc = -EINVAL;
+		goto vm_error;
+	}
+
+	if (num_regs != num_sizes) {
+		input_err(true, &ts->client->dev, "IO bases and sizes doe not match\n");
+		rc = -EINVAL;
+		goto vm_error;
+	}
+
+	vm_info->iomem_list_size = num_regs;
+
+	vm_info->iomem_bases = kcalloc(num_regs, sizeof(*vm_info->iomem_bases), GFP_KERNEL);
+	if (!vm_info->iomem_bases) {
+		rc = -ENOMEM;
+		goto vm_error;
+	}
+
+	rc = of_property_read_string(np, "trusted-touch-type",
+						&vm_info->trusted_touch_type);
+	if (rc) {
+		pr_warn("%s: No trusted touch type selection made\n", __func__);
+		vm_info->mem_tag = GH_MEM_NOTIFIER_TAG_TOUCH_PRIMARY;
+		vm_info->irq_label = GH_IRQ_LABEL_TRUSTED_TOUCH_PRIMARY;
+		rc = 0;
+	} else if (!strcmp(vm_info->trusted_touch_type, "primary")) {
+		vm_info->mem_tag = GH_MEM_NOTIFIER_TAG_TOUCH_PRIMARY;
+		vm_info->irq_label = GH_IRQ_LABEL_TRUSTED_TOUCH_PRIMARY;
+	} else if (!strcmp(vm_info->trusted_touch_type, "secondary")) {
+		vm_info->mem_tag = GH_MEM_NOTIFIER_TAG_TOUCH_SECONDARY;
+		vm_info->irq_label = GH_IRQ_LABEL_TRUSTED_TOUCH_SECONDARY;
+	}
+
+	rc = of_property_read_string(np, "trusted-touch-type",
+						&vm_info->trusted_touch_type);
+	if (rc)
+		pr_warn("%s: No trusted touch type selection made\n", __func__);
+
+	rc = of_property_read_u32_array(np, "trusted-touch-io-bases",
+			vm_info->iomem_bases, vm_info->iomem_list_size);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to read trusted touch io bases:%d\n", rc);
+		goto io_bases_error;
+	}
+
+	vm_info->iomem_sizes = kzalloc(
+			sizeof(*vm_info->iomem_sizes) * num_sizes, GFP_KERNEL);
+	if (!vm_info->iomem_sizes) {
+		rc = -ENOMEM;
+		goto io_bases_error;
+	}
+
+	rc = of_property_read_u32_array(np, "trusted-touch-io-sizes",
+			vm_info->iomem_sizes, vm_info->iomem_list_size);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to read trusted touch io sizes:%d\n", rc);
+		goto io_sizes_error;
+	}
+	return rc;
+
+io_sizes_error:
+	kfree(vm_info->iomem_sizes);
+io_bases_error:
+	kfree(vm_info->iomem_bases);
+vm_error:
+	kfree(vm_info);
+error:
+	return rc;
+}
+
+static void stm_ts_destroy_vm_info(struct stm_ts_data *ts)
+{
+	kfree(ts->vm_info->iomem_sizes);
+	kfree(ts->vm_info->iomem_bases);
+	kfree(ts->vm_info);
+}
+
+static void stm_ts_vm_deinit(struct stm_ts_data *ts)
+{
+	if (ts->vm_info->mem_cookie)
+		gh_mem_notifier_unregister(ts->vm_info->mem_cookie);
+	stm_ts_destroy_vm_info(ts);
+}
+
+#if IS_ENABLED(CONFIG_ARCH_QTI_VM)
+static int stm_ts_vm_mem_release(struct stm_ts_data *ts);
+static void stm_ts_trusted_touch_tvm_vm_mode_disable(struct stm_ts_data *ts);
+static void stm_ts_trusted_touch_abort_tvm(struct stm_ts_data *ts);
+static void stm_ts_trusted_touch_event_notify(struct stm_ts_data *ts, int event);
+
+void stm_ts_trusted_touch_tvm_i2c_failure_report(struct stm_ts_data *ts)
+{
+	input_err(true, &ts->client->dev, "initiating trusted touch abort due to i2c failure\n");
+	stm_ts_trusted_touch_abort_handler(ts,
+			TRUSTED_TOUCH_EVENT_I2C_FAILURE);
+}
+
+static void stm_trusted_touch_intr_gpio_toggle(struct stm_ts_data *ts,
+		bool enable)
+{
+	void __iomem *base;
+	u32 val = 0;
+
+	base = ioremap(TOUCH_INTR_GPIO_BASE, TOUCH_INTR_GPIO_SIZE);
+	if (enable) {
+		val |= BIT(0);
+		writel_relaxed(val, base + TOUCH_INTR_GPIO_OFFSET);
+		/* wait until toggle to finish*/
+		wmb();
+	} else {
+		val &= ~BIT(0);
+		writel_relaxed(val, base + TOUCH_INTR_GPIO_OFFSET);
+		/* wait until toggle to finish*/
+		wmb();
+	}
+	iounmap(base);
+}
+
+static int stm_ts_trusted_touch_get_tvm_driver_state(struct stm_ts_data *ts)
+{
+	return atomic_read(&ts->vm_info->vm_state);
+}
+
+static void stm_ts_trusted_touch_set_tvm_driver_state(struct stm_ts_data *ts,
+						int state)
+{
+	atomic_set(&ts->vm_info->vm_state, state);
+}
+
+static int stm_ts_sgl_cmp(const void *a, const void *b)
+{
+	struct gh_sgl_entry *left = (struct gh_sgl_entry *)a;
+	struct gh_sgl_entry *right = (struct gh_sgl_entry *)b;
+
+	return (left->ipa_base - right->ipa_base);
+}
+
+static int stm_ts_vm_compare_sgl_desc(struct gh_sgl_desc *expected,
+		struct gh_sgl_desc *received)
+{
+	int idx;
+
+	if (expected->n_sgl_entries != received->n_sgl_entries)
+		return -E2BIG;
+	sort(received->sgl_entries, received->n_sgl_entries,
+			sizeof(received->sgl_entries[0]), stm_ts_sgl_cmp, NULL);
+	sort(expected->sgl_entries, expected->n_sgl_entries,
+			sizeof(expected->sgl_entries[0]), stm_ts_sgl_cmp, NULL);
+
+	for (idx = 0; idx < expected->n_sgl_entries; idx++) {
+		struct gh_sgl_entry *left = &expected->sgl_entries[idx];
+		struct gh_sgl_entry *right = &received->sgl_entries[idx];
+
+		if ((left->ipa_base != right->ipa_base) ||
+				(left->size != right->size)) {
+			pr_err("%s: sgl mismatch: left_base:%lld right base:%lld left size:%lld right size:%lld\n",
+					__func__, left->ipa_base, right->ipa_base,
+					left->size, right->size);
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+static int stm_ts_vm_handle_vm_hardware(struct stm_ts_data *ts)
+{
+	int rc = 0;
+
+	enable_irq(ts->irq);
+	stm_ts_trusted_touch_set_tvm_driver_state(ts, TVM_INTERRUPT_ENABLED);
+	return rc;
+}
+
+static void stm_ts_trusted_touch_tvm_vm_mode_enable(struct stm_ts_data *ts)
+{
+
+	struct gh_sgl_desc *sgl_desc, *expected_sgl_desc;
+	struct gh_acl_desc *acl_desc;
+	struct irq_data *irq_data;
+	int rc = 0;
+	int irq = 0;
+
+	if (stm_ts_trusted_touch_get_tvm_driver_state(ts) !=
+					TVM_ALL_RESOURCES_LENT_NOTIFIED) {
+		input_err(true, &ts->client->dev, "All lend notifications not received\n");
+		stm_ts_trusted_touch_event_notify(ts,
+				TRUSTED_TOUCH_EVENT_NOTIFICATIONS_PENDING);
+		return;
+	}
+
+	acl_desc = stm_ts_vm_get_acl(GH_TRUSTED_VM);
+	if (IS_ERR(acl_desc)) {
+		input_err(true, &ts->client->dev, "failed to populated acl data:rc=%ld\n",
+				PTR_ERR(acl_desc));
+		goto accept_fail;
+	}
+
+	sgl_desc = gh_rm_mem_accept(ts->vm_info->vm_mem_handle,
+			GH_RM_MEM_TYPE_IO,
+			GH_RM_TRANS_TYPE_LEND,
+			GH_RM_MEM_ACCEPT_VALIDATE_ACL_ATTRS |
+			GH_RM_MEM_ACCEPT_VALIDATE_LABEL |
+			GH_RM_MEM_ACCEPT_DONE,  TRUSTED_TOUCH_MEM_LABEL,
+			acl_desc, NULL, NULL, 0);
+	if (IS_ERR_OR_NULL(sgl_desc)) {
+		input_err(true, &ts->client->dev, "failed to do mem accept :rc=%ld\n",
+				PTR_ERR(sgl_desc));
+		goto acl_fail;
+	}
+	stm_ts_trusted_touch_set_tvm_driver_state(ts, TVM_IOMEM_ACCEPTED);
+
+	/* Initiate session on tvm */
+	rc = pm_runtime_get_sync(ts->client->controller->dev.parent);
+
+	if (rc < 0) {
+		input_err(true, &ts->client->dev, "failed to get sync rc:%d\n", rc);
+		goto acl_fail;
+	}
+	stm_ts_trusted_touch_set_tvm_driver_state(ts, TVM_I2C_SESSION_ACQUIRED);
+
+	expected_sgl_desc = stm_ts_vm_get_sgl(ts->vm_info);
+	if (stm_ts_vm_compare_sgl_desc(expected_sgl_desc, sgl_desc)) {
+		input_err(true, &ts->client->dev, "IO sg list does not match\n");
+		goto sgl_cmp_fail;
+	}
+
+	kfree(expected_sgl_desc);
+	kfree(acl_desc);
+
+	irq = gh_irq_accept(ts->vm_info->irq_label, -1, IRQ_TYPE_EDGE_RISING);
+	stm_trusted_touch_intr_gpio_toggle(ts, false);
+	if (irq < 0) {
+		input_err(true, &ts->client->dev, "failed to accept irq\n");
+		goto accept_fail;
+	}
+	stm_ts_trusted_touch_set_tvm_driver_state(ts, TVM_IRQ_ACCEPTED);
+
+
+	irq_data = irq_get_irq_data(irq);
+	if (!irq_data) {
+		input_err(true, &ts->client->dev, "Invalid irq data for trusted touch\n");
+		goto accept_fail;
+	}
+	if (!irq_data->hwirq) {
+		input_err(true, &ts->client->dev, "Invalid irq in irq data\n");
+		goto accept_fail;
+	}
+	if (irq_data->hwirq != ts->vm_info->hw_irq) {
+		input_err(true, &ts->client->dev, "Invalid irq lent\n");
+		goto accept_fail;
+	}
+
+	input_err(true, &ts->client->dev, "irq:returned from accept:%d\n", irq);
+	ts->irq = irq;
+
+	rc = stm_ts_vm_handle_vm_hardware(ts);
+	if (rc) {
+		input_err(true, &ts->client->dev, " Delayed probe failure on VM!\n");
+		goto accept_fail;
+	}
+	atomic_set(&ts->trusted_touch_enabled, 1);
+	input_err(true, &ts->client->dev, " trusted touch enabled\n");
+
+	return;
+sgl_cmp_fail:
+	kfree(expected_sgl_desc);
+acl_fail:
+	kfree(acl_desc);
+accept_fail:
+	stm_ts_trusted_touch_abort_handler(ts,
+			TRUSTED_TOUCH_EVENT_ACCEPT_FAILURE);
+}
+static void stm_ts_vm_irq_on_lend_callback(void *data,
+					unsigned long notif_type,
+					enum gh_irq_label label)
+{
+	struct stm_ts_data *ts = data;
+
+	input_err(true, &ts->client->dev, "received irq lend request for label:%d\n", label);
+	if (stm_ts_trusted_touch_get_tvm_driver_state(ts) ==
+		TVM_IOMEM_LENT_NOTIFIED) {
+		stm_ts_trusted_touch_set_tvm_driver_state(ts,
+		TVM_ALL_RESOURCES_LENT_NOTIFIED);
+	} else {
+		stm_ts_trusted_touch_set_tvm_driver_state(ts,
+			TVM_IRQ_LENT_NOTIFIED);
+	}
+}
+
+static void stm_ts_vm_mem_on_lend_handler(enum gh_mem_notifier_tag tag,
+		unsigned long notif_type, void *entry_data, void *notif_msg)
+{
+	struct gh_rm_notif_mem_shared_payload *payload;
+	struct trusted_touch_vm_info *vm_info;
+	struct stm_ts_data *ts;
+
+	ts = (struct stm_ts_data *)entry_data;
+	vm_info = ts->vm_info;
+	if (!vm_info) {
+		input_err(true, &ts->client->dev, "Invalid vm_info\n");
+		return;
+	}
+
+	if (notif_type != GH_RM_NOTIF_MEM_SHARED ||
+			tag != vm_info->mem_tag) {
+		input_err(true, &ts->client->dev, "Invalid command passed from rm\n");
+		return;
+	}
+
+	if (!entry_data || !notif_msg) {
+		input_err(true, &ts->client->dev, "Invalid entry data passed from rm\n");
+		return;
+	}
+
+
+	payload = (struct gh_rm_notif_mem_shared_payload  *)notif_msg;
+	if (payload->trans_type != GH_RM_TRANS_TYPE_LEND ||
+			payload->label != TRUSTED_TOUCH_MEM_LABEL) {
+		input_err(true, &ts->client->dev, "Invalid label or transaction type\n");
+		return;
+	}
+
+	vm_info->vm_mem_handle = payload->mem_handle;
+	input_err(true, &ts->client->dev, "received mem lend request with handle:%d\n",
+		vm_info->vm_mem_handle);
+	if (stm_ts_trusted_touch_get_tvm_driver_state(ts) ==
+		TVM_IRQ_LENT_NOTIFIED) {
+		stm_ts_trusted_touch_set_tvm_driver_state(ts,
+			TVM_ALL_RESOURCES_LENT_NOTIFIED);
+	} else {
+		stm_ts_trusted_touch_set_tvm_driver_state(ts,
+		TVM_IOMEM_LENT_NOTIFIED);
+	}
+}
+
+static int stm_ts_vm_mem_release(struct stm_ts_data *ts)
+{
+	int rc = 0;
+
+	if (!ts->vm_info->vm_mem_handle) {
+		input_err(true, &ts->client->dev, "Invalid memory handle\n");
+		return -EINVAL;
+	}
+
+	rc = gh_rm_mem_release(ts->vm_info->vm_mem_handle, 0);
+	if (rc)
+		input_err(true, &ts->client->dev, "VM mem release failed: rc=%d\n", rc);
+
+	rc = gh_rm_mem_notify(ts->vm_info->vm_mem_handle,
+				GH_RM_MEM_NOTIFY_OWNER_RELEASED,
+				ts->vm_info->mem_tag, 0);
+	if (rc)
+		input_err(true, &ts->client->dev, "Failed to notify mem release to PVM: rc=%d\n", rc);
+	input_err(true, &ts->client->dev, "vm mem release succeded\n");
+
+	ts->vm_info->vm_mem_handle = 0;
+	return rc;
+}
+
+static void stm_ts_trusted_touch_tvm_vm_mode_disable(struct stm_ts_data *ts)
+{
+	int rc = 0;
+
+	atomic_set(&ts->trusted_touch_transition, 1);
+
+	if (atomic_read(&ts->trusted_touch_abort_status)) {
+		stm_ts_trusted_touch_abort_tvm(ts);
+		return;
+	}
+
+	disable_irq(ts->irq);
+
+	stm_ts_trusted_touch_set_tvm_driver_state(ts,
+				TVM_INTERRUPT_DISABLED);
+
+	rc = gh_irq_release(ts->vm_info->irq_label);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to release irq rc:%d\n", rc);
+		goto error;
+	} else {
+		stm_ts_trusted_touch_set_tvm_driver_state(ts,
+					TVM_IRQ_RELEASED);
+	}
+	rc = gh_irq_release_notify(ts->vm_info->irq_label);
+	if (rc)
+		input_err(true, &ts->client->dev, "Failed to notify release irq rc:%d\n", rc);
+
+	input_err(true, &ts->client->dev, "vm irq release succeded\n");
+
+	stm_ts_release_all_finger(ts);
+
+	pm_runtime_put_sync(ts->client->controller->dev.parent);
+
+	stm_ts_trusted_touch_set_tvm_driver_state(ts,
+					TVM_I2C_SESSION_RELEASED);
+	rc = stm_ts_vm_mem_release(ts);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to release mem rc:%d\n", rc);
+		goto error;
+	} else {
+		stm_ts_trusted_touch_set_tvm_driver_state(ts,
+					TVM_IOMEM_RELEASED);
+	}
+	stm_ts_trusted_touch_set_tvm_driver_state(ts, TRUSTED_TOUCH_TVM_INIT);
+	atomic_set(&ts->trusted_touch_transition, 0);
+	atomic_set(&ts->trusted_touch_enabled, 0);
+	input_err(true, &ts->client->dev, " trusted touch disabled\n");
+	return;
+error:
+	stm_ts_trusted_touch_abort_handler(ts,
+			TRUSTED_TOUCH_EVENT_RELEASE_FAILURE);
+}
+
+int stm_ts_handle_trusted_touch_tvm(struct stm_ts_data *ts, int value)
+{
+	int err = 0;
+
+	switch (value) {
+	case 0:
+		if ((atomic_read(&ts->trusted_touch_enabled) == 0) &&
+			(atomic_read(&ts->trusted_touch_abort_status) == 0)) {
+			input_err(true, &ts->client->dev, "Trusted touch is already disabled\n");
+			break;
+		}
+		if (atomic_read(&ts->trusted_touch_mode) ==
+				TRUSTED_TOUCH_VM_MODE) {
+			stm_ts_trusted_touch_tvm_vm_mode_disable(ts);
+		} else {
+			input_err(true, &ts->client->dev, "Unsupported trusted touch mode\n");
+		}
+		break;
+
+	case 1:
+		if (atomic_read(&ts->trusted_touch_enabled)) {
+			input_err(true, &ts->client->dev, "Trusted touch usecase underway\n");
+			err = -EBUSY;
+			break;
+		}
+		if (atomic_read(&ts->trusted_touch_mode) ==
+				TRUSTED_TOUCH_VM_MODE) {
+			stm_ts_trusted_touch_tvm_vm_mode_enable(ts);
+		} else {
+			input_err(true, &ts->client->dev, "Unsupported trusted touch mode\n");
+		}
+		break;
+
+	default:
+		input_err(true, &ts->client->dev, "unsupported value: %d\n", value);
+		err = -EINVAL;
+		break;
+	}
+
+	return err;
+}
+
+static void stm_ts_trusted_touch_abort_tvm(struct stm_ts_data *ts)
+{
+	int rc = 0;
+	int vm_state = stm_ts_trusted_touch_get_tvm_driver_state(ts);
+
+	if (vm_state >= TRUSTED_TOUCH_TVM_STATE_MAX) {
+		input_err(true, &ts->client->dev, "invalid tvm driver state: %d\n", vm_state);
+		return;
+	}
+
+	switch (vm_state) {
+	case TVM_INTERRUPT_ENABLED:
+		disable_irq(ts->irq);
+	case TVM_IRQ_ACCEPTED:
+	case TVM_INTERRUPT_DISABLED:
+		rc = gh_irq_release(ts->vm_info->irq_label);
+		if (rc)
+			input_err(true, &ts->client->dev, "Failed to release irq rc:%d\n", rc);
+		rc = gh_irq_release_notify(ts->vm_info->irq_label);
+		if (rc)
+			input_err(true, &ts->client->dev, "Failed to notify irq release rc:%d\n", rc);
+	case TVM_I2C_SESSION_ACQUIRED:
+	case TVM_IOMEM_ACCEPTED:
+	case TVM_IRQ_RELEASED:
+		stm_ts_release_all_finger(ts);
+		pm_runtime_put_sync(ts->client->controller->dev.parent);
+
+	case TVM_I2C_SESSION_RELEASED:
+		rc = stm_ts_vm_mem_release(ts);
+		if (rc)
+			input_err(true, &ts->client->dev, "Failed to release mem rc:%d\n", rc);
+	case TVM_IOMEM_RELEASED:
+	case TVM_ALL_RESOURCES_LENT_NOTIFIED:
+	case TRUSTED_TOUCH_TVM_INIT:
+	case TVM_IRQ_LENT_NOTIFIED:
+	case TVM_IOMEM_LENT_NOTIFIED:
+		atomic_set(&ts->trusted_touch_enabled, 0);
+	}
+
+	atomic_set(&ts->trusted_touch_abort_status, 0);
+	stm_ts_trusted_touch_set_tvm_driver_state(ts, TRUSTED_TOUCH_TVM_INIT);
+}
+
+#else
+
+static void stm_ts_bus_put(struct stm_ts_data *ts);
+
+static int stm_ts_trusted_touch_get_pvm_driver_state(struct stm_ts_data *ts)
+{
+	return atomic_read(&ts->vm_info->vm_state);
+}
+
+static void stm_ts_trusted_touch_set_pvm_driver_state(struct stm_ts_data *ts,
+							int state)
+{
+	atomic_set(&ts->vm_info->vm_state, state);
+}
+
+static void stm_ts_trusted_touch_abort_pvm(struct stm_ts_data *ts)
+{
+	int rc = 0;
+	int vm_state = stm_ts_trusted_touch_get_pvm_driver_state(ts);
+
+	if (vm_state >= TRUSTED_TOUCH_PVM_STATE_MAX) {
+		input_err(true, &ts->client->dev, "Invalid driver state: %d\n", vm_state);
+		return;
+	}
+
+	switch (vm_state) {
+	case PVM_IRQ_RELEASE_NOTIFIED:
+	case PVM_ALL_RESOURCES_RELEASE_NOTIFIED:
+	case PVM_IRQ_LENT:
+	case PVM_IRQ_LENT_NOTIFIED:
+		rc = gh_irq_reclaim(ts->vm_info->irq_label);
+		if (rc)
+			input_err(true, &ts->client->dev, "failed to reclaim irq on pvm rc:%d\n", rc);
+	case PVM_IRQ_RECLAIMED:
+	case PVM_IOMEM_LENT:
+	case PVM_IOMEM_LENT_NOTIFIED:
+	case PVM_IOMEM_RELEASE_NOTIFIED:
+		rc = gh_rm_mem_reclaim(ts->vm_info->vm_mem_handle, 0);
+		if (rc)
+			input_err(true, &ts->client->dev, "failed to reclaim iomem on pvm rc:%d\n", rc);
+		ts->vm_info->vm_mem_handle = 0;
+	case PVM_IOMEM_RECLAIMED:
+	case PVM_INTERRUPT_DISABLED:
+		enable_irq(ts->irq);
+	case PVM_I2C_RESOURCE_ACQUIRED:
+	case PVM_INTERRUPT_ENABLED:
+		stm_ts_bus_put(ts);
+	case TRUSTED_TOUCH_PVM_INIT:
+	case PVM_I2C_RESOURCE_RELEASED:
+		atomic_set(&ts->trusted_touch_enabled, 0);
+		atomic_set(&ts->trusted_touch_transition, 0);
+	}
+
+	atomic_set(&ts->trusted_touch_abort_status, 0);
+
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, TRUSTED_TOUCH_PVM_INIT);
+}
+
+static int stm_ts_clk_prepare_enable(struct stm_ts_data *ts)
+{
+	int ret;
+
+	ret = clk_prepare_enable(ts->iface_clk);
+	if (ret) {
+		input_err(true, &ts->client->dev, "%s: error on clk_prepare_enable(iface_clk): %d\n", __func__, ret);
+		return ret;
+	}
+
+	ret = clk_prepare_enable(ts->core_clk);
+	if (ret) {
+		clk_disable_unprepare(ts->iface_clk);
+		input_err(true, &ts->client->dev, "%s: error clk_prepare_enable(core_clk): %d\n", __func__, ret);
+	}
+	return ret;
+}
+
+static void stm_ts_clk_disable_unprepare(struct stm_ts_data *ts)
+{
+	clk_disable_unprepare(ts->core_clk);
+	clk_disable_unprepare(ts->iface_clk);
+}
+
+static int stm_ts_bus_get(struct stm_ts_data *ts)
+{
+	int rc = 0;
+	struct device *dev = NULL;
+
+	reinit_completion(&ts->trusted_touch_powerdown);
+
+	dev = ts->client->controller->dev.parent;
+
+	mutex_lock(&ts->clk_io_ctrl_mutex);
+	rc = pm_runtime_get_sync(dev);
+	if (rc >= 0 &&  ts->core_clk != NULL &&
+				ts->iface_clk != NULL) {
+		rc = stm_ts_clk_prepare_enable(ts);
+		if (rc)
+			pm_runtime_put_sync(dev);
+	}
+
+	mutex_unlock(&ts->clk_io_ctrl_mutex);
+	return rc;
+}
+
+static void stm_ts_bus_put(struct stm_ts_data *ts)
+{
+	struct device *dev = NULL;
+
+	dev = ts->client->controller->dev.parent;
+
+	mutex_lock(&ts->clk_io_ctrl_mutex);
+	if (ts->core_clk != NULL && ts->iface_clk != NULL)
+		stm_ts_clk_disable_unprepare(ts);
+	pm_runtime_put_sync(dev);
+	mutex_unlock(&ts->clk_io_ctrl_mutex);
+	complete(&ts->trusted_touch_powerdown);
+}
+
+static struct gh_notify_vmid_desc *stm_ts_vm_get_vmid(gh_vmid_t vmid)
+{
+	struct gh_notify_vmid_desc *vmid_desc;
+
+	vmid_desc = kzalloc(offsetof(struct gh_notify_vmid_desc,
+				vmid_entries[1]), GFP_KERNEL);
+	if (!vmid_desc)
+		return ERR_PTR(ENOMEM);
+
+	vmid_desc->n_vmid_entries = 1;
+	vmid_desc->vmid_entries[0].vmid = vmid;
+	return vmid_desc;
+}
+
+static void stm_trusted_touch_pvm_vm_mode_disable(struct stm_ts_data *ts)
+{
+	int rc = 0;
+
+	atomic_set(&ts->trusted_touch_transition, 1);
+
+	if (atomic_read(&ts->trusted_touch_abort_status)) {
+		stm_ts_trusted_touch_abort_pvm(ts);
+		return;
+	}
+
+	if (stm_ts_trusted_touch_get_pvm_driver_state(ts) !=
+					PVM_ALL_RESOURCES_RELEASE_NOTIFIED)
+		input_err(true, &ts->client->dev, "all release notifications are not received yet\n");
+
+	rc = gh_rm_mem_reclaim(ts->vm_info->vm_mem_handle, 0);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Trusted touch VM mem reclaim failed rc:%d\n", rc);
+		goto error;
+	}
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_IOMEM_RECLAIMED);
+	ts->vm_info->vm_mem_handle = 0;
+	input_err(true, &ts->client->dev, "vm mem reclaim succeded!\n");
+
+	rc = gh_irq_reclaim(ts->vm_info->irq_label);
+	if (rc) {
+		input_err(true, &ts->client->dev, "failed to reclaim irq on pvm rc:%d\n", rc);
+		goto error;
+	}
+	stm_ts_trusted_touch_set_pvm_driver_state(ts,
+				PVM_IRQ_RECLAIMED);
+	input_err(true, &ts->client->dev, "vm irq reclaim succeded!\n");
+	enable_irq(ts->irq);
+
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_INTERRUPT_ENABLED);
+	stm_ts_bus_put(ts);
+	atomic_set(&ts->trusted_touch_transition, 0);
+	stm_ts_trusted_touch_set_pvm_driver_state(ts,
+						PVM_I2C_RESOURCE_RELEASED);
+	stm_ts_trusted_touch_set_pvm_driver_state(ts,
+						TRUSTED_TOUCH_PVM_INIT);
+	atomic_set(&ts->trusted_touch_enabled, 0);
+	input_err(true, &ts->client->dev, " trusted touch disabled\n");
+	return;
+error:
+	stm_ts_trusted_touch_abort_handler(ts,
+			TRUSTED_TOUCH_EVENT_RECLAIM_FAILURE);
+}
+
+static void stm_ts_vm_irq_on_release_callback(void *data,
+					unsigned long notif_type,
+					enum gh_irq_label label)
+{
+	struct stm_ts_data *ts = data;
+
+	if (notif_type != GH_RM_NOTIF_VM_IRQ_RELEASED) {
+		input_err(true, &ts->client->dev, "invalid notification type\n");
+		return;
+	}
+
+	if (stm_ts_trusted_touch_get_pvm_driver_state(ts) == PVM_IOMEM_RELEASE_NOTIFIED) {
+		stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_ALL_RESOURCES_RELEASE_NOTIFIED);
+	} else {
+		stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_IRQ_RELEASE_NOTIFIED);
+	}
+}
+
+static void stm_ts_vm_mem_on_release_handler(enum gh_mem_notifier_tag tag,
+		unsigned long notif_type, void *entry_data, void *notif_msg)
+{
+	struct gh_rm_notif_mem_released_payload *release_payload;
+	struct trusted_touch_vm_info *vm_info;
+	struct stm_ts_data *ts;
+
+	ts = (struct stm_ts_data *)entry_data;
+	vm_info = ts->vm_info;
+	if (!vm_info) {
+		input_err(true, &ts->client->dev, " Invalid vm_info\n");
+		return;
+	}
+
+	if (notif_type != GH_RM_NOTIF_MEM_RELEASED) {
+		input_err(true, &ts->client->dev, " Invalid notification type\n");
+		return;
+	}
+
+	if (tag != vm_info->mem_tag) {
+		input_err(true, &ts->client->dev, " Invalid tag\n");
+		return;
+	}
+
+	if (!entry_data || !notif_msg) {
+		input_err(true, &ts->client->dev, " Invalid data or notification message\n");
+		return;
+	}
+
+	release_payload = (struct gh_rm_notif_mem_released_payload  *)notif_msg;
+	if (release_payload->mem_handle != vm_info->vm_mem_handle) {
+		input_err(true, &ts->client->dev, "Invalid mem handle detected\n");
+		return;
+	}
+
+	if (stm_ts_trusted_touch_get_pvm_driver_state(ts) ==
+				PVM_IRQ_RELEASE_NOTIFIED) {
+		stm_ts_trusted_touch_set_pvm_driver_state(ts,
+			PVM_ALL_RESOURCES_RELEASE_NOTIFIED);
+	} else {
+		stm_ts_trusted_touch_set_pvm_driver_state(ts,
+			PVM_IOMEM_RELEASE_NOTIFIED);
+	}
+}
+
+static int stm_ts_vm_mem_lend(struct stm_ts_data *ts)
+{
+	struct gh_acl_desc *acl_desc;
+	struct gh_sgl_desc *sgl_desc;
+	struct gh_notify_vmid_desc *vmid_desc;
+	gh_memparcel_handle_t mem_handle;
+	gh_vmid_t trusted_vmid;
+	int rc = 0;
+
+	acl_desc = stm_ts_vm_get_acl(GH_TRUSTED_VM);
+	if (IS_ERR(acl_desc)) {
+		input_err(true, &ts->client->dev, "Failed to get acl of IO memories for Trusted touch\n");
+		PTR_ERR(acl_desc);
+		return -EINVAL;
+	}
+
+	sgl_desc = stm_ts_vm_get_sgl(ts->vm_info);
+	if (IS_ERR(sgl_desc)) {
+		input_err(true, &ts->client->dev, "Failed to get sgl of IO memories for Trusted touch\n");
+		PTR_ERR(sgl_desc);
+		rc = -EINVAL;
+		goto sgl_error;
+	}
+
+	rc = gh_rm_mem_lend(GH_RM_MEM_TYPE_IO, 0, TRUSTED_TOUCH_MEM_LABEL,
+			acl_desc, sgl_desc, NULL, &mem_handle);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to lend IO memories for Trusted touch rc:%d\n",
+							rc);
+		goto error;
+	}
+
+	input_err(true, &ts->client->dev, " vm mem lend succeded\n");
+
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_IOMEM_LENT);
+
+	gh_rm_get_vmid(GH_TRUSTED_VM, &trusted_vmid);
+
+	vmid_desc = stm_ts_vm_get_vmid(trusted_vmid);
+
+	rc = gh_rm_mem_notify(mem_handle, GH_RM_MEM_NOTIFY_RECIPIENT_SHARED,
+			ts->vm_info->mem_tag, vmid_desc);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to notify mem lend to hypervisor rc:%d\n", rc);
+		goto vmid_error;
+	}
+
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_IOMEM_LENT_NOTIFIED);
+
+	ts->vm_info->vm_mem_handle = mem_handle;
+vmid_error:
+	kfree(vmid_desc);
+error:
+	kfree(sgl_desc);
+sgl_error:
+	kfree(acl_desc);
+
+	return rc;
+}
+
+static int stm_ts_trusted_touch_pvm_vm_mode_enable(struct stm_ts_data *ts)
+{
+	int rc = 0;
+	struct trusted_touch_vm_info *vm_info = ts->vm_info;
+
+	atomic_set(&ts->trusted_touch_transition, 1);
+	mutex_lock(&ts->transition_lock);
+
+	if (ts->plat_data->enabled == false) {
+		input_err(true, &ts->client->dev, "Invalid power state for operation\n");
+		atomic_set(&ts->trusted_touch_transition, 0);
+		rc =  -EPERM;
+		goto error;
+	}
+
+	/* i2c session start and resource acquire */
+	if (stm_ts_bus_get(ts) < 0) {
+		input_err(true, &ts->client->dev, "stm_ts_bus_get failed\n");
+		rc = -EIO;
+		goto error;
+	}
+
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_I2C_RESOURCE_ACQUIRED);
+	/* flush pending interurpts from FIFO */
+	disable_irq(ts->irq);
+	atomic_set(&ts->trusted_touch_enabled, 1);
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_INTERRUPT_DISABLED);
+	stm_ts_release_all_finger(ts);
+
+	rc = stm_ts_vm_mem_lend(ts);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to lend memory\n");
+		goto abort_handler;
+	}
+	input_err(true, &ts->client->dev, "vm mem lend succeded\n");
+	rc = gh_irq_lend_v2(vm_info->irq_label, vm_info->vm_name,
+		ts->irq, &stm_ts_vm_irq_on_release_callback, ts);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to lend irq\n");
+		goto abort_handler;
+	}
+
+	input_err(true, &ts->client->dev, "vm irq lend succeded for irq:%d\n", ts->irq);
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_IRQ_LENT);
+
+	rc = gh_irq_lend_notify(vm_info->irq_label);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Failed to notify irq\n");
+		goto abort_handler;
+	}
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, PVM_IRQ_LENT_NOTIFIED);
+
+	mutex_unlock(&ts->transition_lock);
+	atomic_set(&ts->trusted_touch_transition, 0);
+	input_err(true, &ts->client->dev, " trusted touch enabled\n");
+	return rc;
+
+abort_handler:
+	atomic_set(&ts->trusted_touch_enabled, 0);
+	stm_ts_trusted_touch_abort_handler(ts, TRUSTED_TOUCH_EVENT_LEND_FAILURE);
+
+error:
+	mutex_unlock(&ts->transition_lock);
+	return rc;
+}
+
+int stm_ts_handle_trusted_touch_pvm(struct stm_ts_data *ts, int value)
+{
+	int err = 0;
+
+	switch (value) {
+	case 0:
+		if (atomic_read(&ts->trusted_touch_enabled) == 0 &&
+			(atomic_read(&ts->trusted_touch_abort_status) == 0)) {
+			input_err(true, &ts->client->dev, "Trusted touch is already disabled\n");
+			break;
+		}
+		if (atomic_read(&ts->trusted_touch_mode) ==
+				TRUSTED_TOUCH_VM_MODE) {
+			stm_trusted_touch_pvm_vm_mode_disable(ts);
+		} else {
+			input_err(true, &ts->client->dev, "Unsupported trusted touch mode\n");
+		}
+		break;
+
+	case 1:
+		if (atomic_read(&ts->trusted_touch_enabled)) {
+			input_err(true, &ts->client->dev, "Trusted touch usecase underway\n");
+			err = -EBUSY;
+			break;
+		}
+		if (atomic_read(&ts->trusted_touch_mode) ==
+				TRUSTED_TOUCH_VM_MODE) {
+			err = stm_ts_trusted_touch_pvm_vm_mode_enable(ts);
+		} else {
+			input_err(true, &ts->client->dev, "Unsupported trusted touch mode\n");
+		}
+		break;
+
+	default:
+		input_err(true, &ts->client->dev, "unsupported value: %d\n", value);
+		err = -EINVAL;
+		break;
+	}
+	return err;
+}
+
+#endif
+
+static void stm_ts_trusted_touch_event_notify(struct stm_ts_data *ts, int event)
+{
+	atomic_set(&ts->trusted_touch_event, event);
+	sysfs_notify(&ts->plat_data->input_dev->dev.kobj, NULL, "trusted_touch_event");
+}
+
+static void stm_ts_trusted_touch_abort_handler(struct stm_ts_data *ts, int error)
+{
+	atomic_set(&ts->trusted_touch_abort_status, error);
+	input_err(true, &ts->client->dev, "TUI session aborted with failure:%d\n", error);
+	stm_ts_trusted_touch_event_notify(ts, error);
+#if IS_ENABLED(CONFIG_ARCH_QTI_VM)
+	input_err(true, &ts->client->dev, "Resetting touch controller\n");
+	if (stm_ts_trusted_touch_get_tvm_driver_state(ts) >= TVM_IOMEM_ACCEPTED
+			&& error == TRUSTED_TOUCH_EVENT_I2C_FAILURE) {
+		input_err(true, &ts->client->dev, "Resetting touch controller ??????????????\n");
+
+	}
+#endif
+}
+
+static int stm_ts_vm_init(struct stm_ts_data *ts)
+{
+	int rc = 0;
+	struct trusted_touch_vm_info *vm_info;
+	void *mem_cookie;
+
+	rc = stm_ts_populate_vm_info(ts);
+	if (rc) {
+		input_err(true, &ts->client->dev, "Cannot setup vm pipeline\n");
+		rc = -EINVAL;
+		goto fail;
+	}
+
+	vm_info = ts->vm_info;
+#if IS_ENABLED(CONFIG_ARCH_QTI_VM)
+	mem_cookie = gh_mem_notifier_register(vm_info->mem_tag,
+			stm_ts_vm_mem_on_lend_handler, ts);
+	if (!mem_cookie) {
+		input_err(true, &ts->client->dev, "Failed to register on lend mem notifier\n");
+		rc = -EINVAL;
+		goto init_fail;
+	}
+	vm_info->mem_cookie = mem_cookie;
+	rc = gh_irq_wait_for_lend_v2(vm_info->irq_label, GH_PRIMARY_VM,
+			&stm_ts_vm_irq_on_lend_callback, ts);
+	stm_ts_trusted_touch_set_tvm_driver_state(ts, TRUSTED_TOUCH_TVM_INIT);
+#else
+	mem_cookie = gh_mem_notifier_register(vm_info->mem_tag,
+			stm_ts_vm_mem_on_release_handler, ts);
+	if (!mem_cookie) {
+		input_err(true, &ts->client->dev, "Failed to register on release mem notifier\n");
+		rc = -EINVAL;
+		goto init_fail;
+	}
+	vm_info->mem_cookie = mem_cookie;
+	stm_ts_trusted_touch_set_pvm_driver_state(ts, TRUSTED_TOUCH_PVM_INIT);
+#endif
+	return rc;
+init_fail:
+	stm_ts_vm_deinit(ts);
+fail:
+	return rc;
+}
+
+static void stm_ts_dt_parse_trusted_touch_info(struct stm_ts_data *ts)
+{
+	struct device_node *np = ts->client->dev.of_node;
+	int rc = 0;
+	const char *selection;
+	const char *environment;
+
+	rc = of_property_read_string(np, "trusted-touch-mode",
+								&selection);
+	if (rc) {
+		input_err(true, &ts->client->dev, "%s: No trusted touch mode selection made\n", __func__);
+		atomic_set(&ts->trusted_touch_mode,
+						TRUSTED_TOUCH_MODE_NONE);
+		return;
+	}
+
+	if (!strcmp(selection, "vm_mode")) {
+		atomic_set(&ts->trusted_touch_mode,
+						TRUSTED_TOUCH_VM_MODE);
+		input_err(true, &ts->client->dev, "Selected trusted touch mode to VM mode\n");
+	} else {
+		atomic_set(&ts->trusted_touch_mode,
+						TRUSTED_TOUCH_MODE_NONE);
+		input_err(true, &ts->client->dev, "Invalid trusted_touch mode\n");
+	}
+
+	rc = of_property_read_string(np, "touch-environment",
+						&environment);
+	if (rc) {
+		input_err(true, &ts->client->dev, "%s: No trusted touch mode environment\n", __func__);
+	}
+	ts->touch_environment = environment;
+	input_err(true, &ts->client->dev, "Trusted touch environment:%s\n",
+			ts->touch_environment);
+}
+
+static void stm_ts_trusted_touch_init(struct stm_ts_data *ts)
+{
+	int rc = 0;
+
+	atomic_set(&ts->trusted_touch_initialized, 0);
+	stm_ts_dt_parse_trusted_touch_info(ts);
+
+	if (atomic_read(&ts->trusted_touch_mode) ==
+						TRUSTED_TOUCH_MODE_NONE)
+		return;
+
+	init_completion(&ts->trusted_touch_powerdown);
+
+	/* Get clocks */
+	ts->core_clk = devm_clk_get(ts->client->controller->dev.parent,
+						"m-ahb");
+	if (IS_ERR(ts->core_clk)) {
+		ts->core_clk = NULL;
+		input_err(true, &ts->client->dev, "%s: core_clk is not defined\n", __func__);
+	}
+
+	ts->iface_clk = devm_clk_get(ts->client->controller->dev.parent,
+						"se-clk");
+	if (IS_ERR(ts->iface_clk)) {
+		ts->iface_clk = NULL;
+		input_err(true, &ts->client->dev, "%s: iface_clk is not defined\n", __func__);
+	}
+
+	if (atomic_read(&ts->trusted_touch_mode) ==
+						TRUSTED_TOUCH_VM_MODE) {
+		rc = stm_ts_vm_init(ts);
+		if (rc)
+			input_err(true, &ts->client->dev, "Failed to init VM\n");
+	}
+	atomic_set(&ts->trusted_touch_initialized, 1);
+}
+
+static ssize_t trusted_touch_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct stm_ts_data *ts = dev_get_drvdata(dev);
+
+	input_err(true, &ts->client->dev, "%s\n", __func__);
+	return scnprintf(buf, PAGE_SIZE, "%d", atomic_read(&ts->trusted_touch_enabled));
+}
+
+static ssize_t trusted_touch_enable_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct stm_ts_data *ts = dev_get_drvdata(dev);
+	unsigned long value;
+	int ret;
+
+	input_err(true, &ts->client->dev, "%s\n", __func__);
+	if (count > 2)
+		return -EINVAL;
+
+	ret = kstrtoul(buf, 10, &value);
+	if (ret < 0)
+		return ret;
+
+	if (!atomic_read(&ts->trusted_touch_initialized))
+		return -EIO;
+
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+	if (value == 1)
+		sec_input_notify(&ts->stm_input_nb, NOTIFIER_SECURE_TOUCH_ENABLE, NULL);
+#endif
+
+	input_info(true, &ts->client->dev, "%s: value: %ld\n", __func__, value);
+#if IS_ENABLED(CONFIG_ARCH_QTI_VM)
+	ret = stm_ts_handle_trusted_touch_tvm(ts, value);
+#else
+	ret = stm_ts_handle_trusted_touch_pvm(ts, value);
+#endif
+	if (ret) {
+		input_err(true, &ts->client->dev, "Failed to handle touch vm\n");
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+		sec_input_notify(&ts->stm_input_nb, NOTIFIER_SECURE_TOUCH_DISABLE, NULL);
+#endif
+		return -EINVAL;
+	}
+
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+	if (value == 0)
+		sec_input_notify(&ts->stm_input_nb, NOTIFIER_SECURE_TOUCH_DISABLE, NULL);
+#endif
+
+	return count;
+}
+
+static ssize_t trusted_touch_event_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct stm_ts_data *ts = dev_get_drvdata(dev);
+
+	input_err(true, &ts->client->dev, "%s\n", __func__);
+	return scnprintf(buf, PAGE_SIZE, "%d", atomic_read(&ts->trusted_touch_event));
+}
+
+static ssize_t trusted_touch_event_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct stm_ts_data *ts = dev_get_drvdata(dev);
+	unsigned long value;
+	int ret;
+
+	input_err(true, &ts->client->dev, "%s\n", __func__);
+	if (count > 2)
+		return -EINVAL;
+
+	ret = kstrtoul(buf, 10, &value);
+	if (ret < 0)
+		return ret;
+
+	if (!atomic_read(&ts->trusted_touch_initialized))
+		return -EIO;
+
+	input_info(true, &ts->client->dev, "%s: value: %ld\n", __func__, value);
+
+	atomic_set(&ts->trusted_touch_event, value);
+
+	return count;
+}
+
+static ssize_t trusted_touch_type_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct stm_ts_data *ts = dev_get_drvdata(dev);
+
+	input_err(true, &ts->client->dev, "%s\n", __func__);
+	return scnprintf(buf, PAGE_SIZE, "%s", ts->vm_info->trusted_touch_type);
+}
+#endif
 static irqreturn_t secure_filter_interrupt(struct stm_ts_data *ts)
 {
 	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
@@ -86,7 +1300,7 @@ static ssize_t secure_touch_enable_store(struct device *dev,
 		/* Release All Finger */
 		stm_ts_release_all_finger(ts);
 
-		if (pm_runtime_get_sync(ts->client->adapter->dev.parent) < 0) {
+		if (stm_pm_runtime_get_sync(ts) < 0) {
 			enable_irq(ts->client->irq);
 			input_err(true, &ts->client->dev, "%s: failed to get pm_runtime\n", __func__);
 			return -EIO;
@@ -113,7 +1327,7 @@ static ssize_t secure_touch_enable_store(struct device *dev,
 
 		sec_delay(200);
 
-		pm_runtime_put_sync(ts->client->adapter->dev.parent);
+		stm_pm_runtime_put_sync(ts);
 		atomic_set(&ts->secure_enabled, 0);
 
 		sysfs_notify(&ts->plat_data->input_dev->dev.kobj, NULL, "secure_touch");
@@ -194,11 +1408,24 @@ static void secure_touch_stop(struct stm_ts_data *ts, bool stop)
 	}
 }
 
+#if IS_ENABLED(CONFIG_GH_RM_DRV)
+static DEVICE_ATTR(trusted_touch_enable, (S_IRUGO | S_IWUSR | S_IWGRP),
+		trusted_touch_enable_show, trusted_touch_enable_store);
+static DEVICE_ATTR(trusted_touch_event, (S_IRUGO | S_IWUSR | S_IWGRP),
+		trusted_touch_event_show, trusted_touch_event_store);
+static DEVICE_ATTR(trusted_touch_type, S_IRUGO,
+		trusted_touch_type_show, NULL);
+#endif
 static DEVICE_ATTR(secure_touch_enable, (S_IRUGO | S_IWUSR | S_IWGRP),
 		secure_touch_enable_show, secure_touch_enable_store);
 static DEVICE_ATTR(secure_touch, S_IRUGO, secure_touch_show, NULL);
 static DEVICE_ATTR(secure_ownership, S_IRUGO, secure_ownership_show, NULL);
 static struct attribute *secure_attr[] = {
+#if IS_ENABLED(CONFIG_GH_RM_DRV)
+	&dev_attr_trusted_touch_enable.attr,
+	&dev_attr_trusted_touch_event.attr,
+	&dev_attr_trusted_touch_type.attr,
+#endif
 	&dev_attr_secure_touch_enable.attr,
 	&dev_attr_secure_touch.attr,
 	&dev_attr_secure_ownership.attr,
@@ -210,337 +1437,88 @@ static struct attribute_group secure_attr_group = {
 };
 #endif
 
-#if IS_ENABLED(CONFIG_SAMSUNG_TUI)
-extern int stui_i2c_lock(struct i2c_adapter *adap);
-extern int stui_i2c_unlock(struct i2c_adapter *adap);
-
-int stm_stui_tsp_enter(void)
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+static int stm_touch_notify_call(struct notifier_block *n, unsigned long data, void *v)
 {
-	struct stm_ts_data *ts = dev_get_drvdata(ptsp);
+	struct stm_ts_data *ts = container_of(n, struct stm_ts_data, stm_input_nb);
+	u8 reg[3];
 	int ret = 0;
 
-	if (!ts)
-		return -EINVAL;
-
-#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
-	sec_input_notify(&ts->stm_input_nb, NOTIFIER_SECURE_TOUCH_ENABLE, NULL);
-#endif
-
-	disable_irq(ts->irq);
-	stm_ts_release_all_finger(ts);
-
-	ret = stui_i2c_lock(ts->client->adapter);
-	if (ret) {
-		pr_err("[STUI] stui_i2c_lock failed : %d\n", ret);
-#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
-		sec_input_notify(&ts->stm_input_nb, NOTIFIER_SECURE_TOUCH_DISABLE, NULL);
-#endif
-		enable_irq(ts->irq);
-		return -1;
+	if (!ts->info_work_done) {
+		input_info(true, &ts->client->dev, "%s: info work is not done. skip\n", __func__);
+		return ret;
 	}
 
-	return 0;
-}
+	if (ts->plat_data->shutdown_called)
+		return -ENODEV;
 
-int stm_stui_tsp_exit(void)
-{
-	struct stm_ts_data *ts = dev_get_drvdata(ptsp);
-	int ret = 0;
+	reg[0] = STM_TS_CMD_SET_FUNCTION_ONOFF;
 
-	if (!ts)
-		return -EINVAL;
-
-	ret = stui_i2c_unlock(ts->client->adapter);
-	if (ret)
-		pr_err("[STUI] stui_i2c_unlock failed : %d\n", ret);
-
-	enable_irq(ts->irq);
-
-#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
-	sec_input_notify(&ts->stm_input_nb, NOTIFIER_SECURE_TOUCH_DISABLE, NULL);
-#endif
-
+	switch (data) {
+	case NOTIFIER_TSP_BLOCKING_REQUEST:
+		if (ts->plat_data->wirelesscharger_mode != TYPE_WIRELESS_CHARGER_NONE) {
+			input_info(true, &ts->client->dev, "%s: Skip tsp block on wireless charger\n", __func__);
+		} else {
+			reg[1] = STM_TS_CMD_FUNCTION_SET_TSP_BLOCK;
+			reg[2] = 1;
+			ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+			input_info(true, &ts->client->dev, "%s: tsp block, ret=%d\n", __func__, ret);
+			sec_input_gesture_report(&ts->client->dev, SPONGE_EVENT_TYPE_TSP_SCAN_BLOCK, 0, 0);
+		}
+		break;
+	case NOTIFIER_TSP_BLOCKING_RELEASE:
+		if (ts->plat_data->wirelesscharger_mode != TYPE_WIRELESS_CHARGER_NONE) {
+			input_info(true, &ts->client->dev, "%s: Skip tsp unblock on wireless charger\n", __func__);
+		} else {
+			reg[1] = STM_TS_CMD_FUNCTION_SET_TSP_BLOCK;
+			reg[2] = 0;
+			ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+			input_info(true, &ts->client->dev, "%s: tsp unblock, ret=%d\n", __func__, ret);
+			sec_input_gesture_report(&ts->client->dev, SPONGE_EVENT_TYPE_TSP_SCAN_UNBLOCK, 0, 0);
+		}
+		break;
+	case NOTIFIER_WACOM_PEN_INSERT:
+		reg[1] = STM_TS_CMD_FUNCTION_SET_PEN_DETECTION;
+		reg[2] = 0;
+		ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+		input_info(true, &ts->client->dev, "%s: pen in detect, ret=%d\n", __func__, ret);
+		break;
+	case NOTIFIER_WACOM_PEN_REMOVE:
+		reg[1] = STM_TS_CMD_FUNCTION_SET_PEN_DETECTION;
+		reg[2] = 1;
+		ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+		input_info(true, &ts->client->dev, "%s: pen out detect, ret=%d\n", __func__, ret);
+		break;
+	case NOTIFIER_WACOM_SAVING_MODE_ON:
+		reg[1] = STM_TS_CMD_FUNCTION_SET_PEN_SAVING_MODE;
+		reg[2] = 1;
+		ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+		input_info(true, &ts->client->dev, "%s: pen saving mode on, ret=%d\n", __func__, ret);
+		break;
+	case NOTIFIER_WACOM_SAVING_MODE_OFF:
+		reg[1] = STM_TS_CMD_FUNCTION_SET_PEN_SAVING_MODE;
+		reg[2] = 0;
+		ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+		input_info(true, &ts->client->dev, "%s: pen saving mode off, ret=%d\n", __func__, ret);
+		break;
+	case NOTIFIER_WACOM_PEN_HOVER_IN:
+		reg[1] = STM_TS_CMD_FUNCTION_SET_HOVER_DETECTION;
+		reg[2] = 1;
+		ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+		input_info(true, &ts->client->dev, "%s: pen hover in detect, ret=%d\n", __func__, ret);
+		break;
+	case NOTIFIER_WACOM_PEN_HOVER_OUT:
+		reg[1] = STM_TS_CMD_FUNCTION_SET_HOVER_DETECTION;
+		reg[2] = 0;
+		ret = ts->stm_ts_write(ts, reg, 3, NULL, 0);
+		input_info(true, &ts->client->dev, "%s: pen hover out detect, ret=%d\n", __func__, ret);
+		break;
+	default:
+		break;
+	}
 	return ret;
 }
-
-int stm_stui_tsp_type(void)
-{
-	struct stm_ts_data *ts = dev_get_drvdata(ptsp);
-	int tsp_vendor = STUI_TSP_TYPE_STM;
-
-	return tsp_vendor;
-}
 #endif
-
-int stm_ts_i2c_write(struct stm_ts_data *ts, u8 *reg, int cnum, u8 *data, int len)
-{
-	int ret;
-	unsigned char retry;
-	struct i2c_msg msg;
-	int i;
-	const int len_max = 0xffff;
-	u8 *buf;
-	u8 *msg_buff;
-
-	if (len + 1 > len_max) {
-		input_err(true, &ts->client->dev,
-				"%s: The i2c buffer size is exceeded.\n", __func__);
-		return -ENOMEM;
-	}
-
-	if (!ts->plat_data->resume_done.done) {
-		ret = wait_for_completion_interruptible_timeout(&ts->plat_data->resume_done, msecs_to_jiffies(500));
-		if (ret <= 0) {
-			input_err(true, &ts->client->dev, "%s: LPM: pm resume is not handled:%d\n", __func__, ret);
-			return -EIO;
-		}
-	}
-
-#if IS_ENABLED(CONFIG_INPUT_SEC_SECURE_TOUCH)
-	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
-		input_err(true, &ts->client->dev,
-				"%s: TSP no accessible from Linux, TUI is enabled!\n", __func__);
-		return -EBUSY;
-	}
-#endif
-#if IS_ENABLED(CONFIG_SAMSUNG_TUI)
-	if (STUI_MODE_TOUCH_SEC & stui_get_mode())
-		return -EBUSY;
-#endif
-	buf = kzalloc(cnum, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-
-	memcpy(buf, reg, cnum);
-
-	msg_buff = kzalloc(len + cnum, GFP_KERNEL);
-	if (!msg_buff) {
-		kfree(buf);
-		return -ENOMEM;
-	}
-
-	if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF\n", __func__);
-		goto err;
-	}
-
-	memcpy(msg_buff, buf, cnum);
-	memcpy(msg_buff + cnum, data, len);
-
-	msg.addr = ts->client->addr;
-	msg.flags = 0 | I2C_M_DMA_SAFE;
-	msg.len = len + cnum;
-	msg.buf = msg_buff;
-
-	mutex_lock(&ts->i2c_mutex);
-	for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
-		ret = i2c_transfer(ts->client->adapter, &msg, 1);
-		if (ret == 1)
-			break;
-
-		if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-			input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
-			mutex_unlock(&ts->i2c_mutex);
-			goto err;
-		}
-
-		usleep_range(1 * 1000, 1 * 1000);
-
-		if (retry > 1) {
-			char result[32];
-			input_err(true, &ts->client->dev, "%s: I2C retry %d, ret:%d\n", __func__, retry + 1, ret);
-			ts->plat_data->hw_param.comm_err_count++;
-
-			snprintf(result, sizeof(result), "RESULT=I2C");
-			if (ts->probe_done)
-				sec_cmd_send_event_to_user(&ts->sec, NULL, result);
-		}
-	}
-
-	mutex_unlock(&ts->i2c_mutex);
-
-	if (retry == SEC_TS_I2C_RETRY_CNT) {
-		input_err(true, &ts->client->dev, "%s: I2C write over retry limit\n", __func__);
-		ret = -EIO;
-		if (ts->probe_done && !ts->reset_is_on_going && !ts->plat_data->shutdown_called)
-			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
-	}
-
-	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_WRITE_CMD) {
-		pr_info("sec_input:i2c_cmd: W: %02X | ", *reg);
-		for (i = 0; i < len; i++)
-			pr_cont("%02X ", data[i]);
-		pr_cont("\n");
-	}
-
-	if (ret == 1) {
-		kfree(msg_buff);
-		kfree(buf);
-		return 0;
-	}
-err:
-	kfree(msg_buff);
-	kfree(buf);
-	return -EIO;
-}
-
-int stm_ts_i2c_read(struct stm_ts_data *ts, u8 *reg, int cnum, u8 *data, int len)
-{
-	int ret;
-	unsigned char retry;
-	struct i2c_msg msg[2];
-	int remain = len;
-	int i;
-	u8 *msg_buff;
-	u8 *buf;
-
-	if (!ts->plat_data->resume_done.done) {
-		ret = wait_for_completion_interruptible_timeout(&ts->plat_data->resume_done, msecs_to_jiffies(500));
-		if (ret <= 0) {
-			input_err(true, &ts->client->dev, "%s: LPM: pm resume is not handled:%d\n", __func__, ret);
-			return -EIO;
-		}
-	}
-
-#if IS_ENABLED(CONFIG_INPUT_SEC_SECURE_TOUCH)
-	if (atomic_read(&ts->secure_enabled) == SECURE_TOUCH_ENABLE) {
-		input_err(true, &ts->client->dev,
-				"%s: TSP no accessible from Linux, TUI is enabled!\n", __func__);
-		return -EBUSY;
-	}
-#endif
-#if IS_ENABLED(CONFIG_SAMSUNG_TUI)
-	if (STUI_MODE_TOUCH_SEC & stui_get_mode())
-		return -EBUSY;
-#endif
-	buf = kzalloc(cnum, GFP_KERNEL);
-	if (!buf)
-		return -ENOMEM;
-	
-	memcpy(buf, reg, cnum);
-
-	msg_buff = kzalloc(len, GFP_KERNEL);
-	if (!msg_buff) {
-		kfree(buf);
-		return -ENOMEM;
-	}
-
-	if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-		input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF\n", __func__);
-		goto err;
-	}
-
-	msg[0].addr = ts->client->addr;
-	msg[0].flags = 0 | I2C_M_DMA_SAFE;
-	msg[0].len = cnum;
-	msg[0].buf = buf;
-
-	msg[1].addr = ts->client->addr;
-	msg[1].flags = I2C_M_RD | I2C_M_DMA_SAFE;
-	msg[1].buf = msg_buff;
-
-	mutex_lock(&ts->i2c_mutex);
-	if (len <= ts->plat_data->i2c_burstmax) {
-		msg[1].len = len;
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
-			ret = i2c_transfer(ts->client->adapter, msg, 2);
-			if (ret == 2)
-				break;
-			usleep_range(1 * 1000, 1 * 1000);
-			if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
-				mutex_unlock(&ts->i2c_mutex);
-				goto err;
-			}
-
-			if (retry > 1) {
-				char result[32];
-				input_err(true, &ts->client->dev, "%s: I2C retry %d, ret:%d\n",
-					__func__, retry + 1, ret);
-				ts->plat_data->hw_param.comm_err_count++;
-
-				snprintf(result, sizeof(result), "RESULT=I2C");
-				if (ts->probe_done)
-					sec_cmd_send_event_to_user(&ts->sec, NULL, result);
-			}
-		}
-	} else {
-		/*
-		 * I2C read buffer is 256 byte. do not support long buffer over than 256.
-		 * So, try to seperate reading data about 256 bytes.
-		 */
-		for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
-			ret = i2c_transfer(ts->client->adapter, msg, 1);
-			if (ret == 1)
-				break;
-			usleep_range(1 * 1000, 1 * 1000);
-			if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-				input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
-				mutex_unlock(&ts->i2c_mutex);
-				goto err;
-			}
-
-			if (retry > 1) {
-				input_err(true, &ts->client->dev, "%s: I2C retry %d, ret:%d\n",
-					__func__, retry + 1, ret);
-				ts->plat_data->hw_param.comm_err_count++;
-			}
-		}
-
-		do {
-			if (remain > ts->plat_data->i2c_burstmax)
-				msg[1].len = ts->plat_data->i2c_burstmax;
-			else
-				msg[1].len = remain;
-
-			remain -= ts->plat_data->i2c_burstmax;
-
-			for (retry = 0; retry < SEC_TS_I2C_RETRY_CNT; retry++) {
-				ret = i2c_transfer(ts->client->adapter, &msg[1], 1);
-				if (ret == 1)
-					break;
-				usleep_range(1 * 1000, 1 * 1000);
-				if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_OFF) {
-					input_err(true, &ts->client->dev, "%s: POWER_STATUS : OFF, retry:%d\n", __func__, retry);
-					mutex_unlock(&ts->i2c_mutex);
-					goto err;
-				}
-
-				if (retry > 1) {
-					input_err(true, &ts->client->dev, "%s: I2C retry %d, ret:%d\n",
-						__func__, retry + 1, ret);
-					ts->plat_data->hw_param.comm_err_count++;
-				}
-			}
-			msg[1].buf += msg[1].len;
-		} while (remain > 0);
-	}
-
-	mutex_unlock(&ts->i2c_mutex);
-
-	if (retry == SEC_TS_I2C_RETRY_CNT) {
-		input_err(true, &ts->client->dev, "%s: I2C read over retry limit\n", __func__);
-		ret = -EIO;
-		if (ts->probe_done && !ts->reset_is_on_going && !ts->plat_data->shutdown_called)
-			schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(TOUCH_RESET_DWORK_TIME));
-	}
-
-	memcpy(data, msg_buff, len);
-	if (ts->debug_flag & SEC_TS_DEBUG_PRINT_READ_CMD) {
-		pr_info("sec_input:i2c_cmd: R: %02X | ", *reg);
-		for (i = 0; i < len; i++)
-			pr_cont("%02X ", data[i]);
-		pr_cont("\n");
-	}
-
-	kfree(buf);
-	kfree(msg_buff);
-	return ret;
-err:
-	kfree(buf);
-	kfree(msg_buff);
-	return -EIO;
-}
 
 void stm_ts_reinit(void *data) 
 {
@@ -569,14 +1547,14 @@ void stm_ts_reinit(void *data)
 	ts->plat_data->touch_pre_noise_status = 0;
 	ts->plat_data->wet_mode = 0;
 
-	ts->stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, true);
+	ts->stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, false);
 	stm_ts_release_all_finger(ts);
 
-	if (ts->plat_data->wirelesscharger_mode != TYPE_WIRELESS_CHARGER_NONE) {
-		ret = stm_ts_set_charger_mode(ts);
-		if (ret < 0)
-			goto out;
-	}
+	if (ts->plat_data->wirelesscharger_mode != TYPE_WIRELESS_CHARGER_NONE)
+		stm_ts_set_wirelesscharger_mode(ts);
+
+	if (ts->charger_mode != TYPE_WIRE_CHARGER_NONE)
+		stm_ts_set_wirecharger_mode(ts);
 
 	stm_ts_set_cover_type(ts, ts->plat_data->touch_functions & STM_TS_TOUCHTYPE_BIT_COVER);
 
@@ -656,14 +1634,18 @@ static void stm_ts_coord_parsing(struct stm_ts_data *ts, struct stm_ts_event_coo
 	if (ts->plat_data->coord[t_id].z <= 0)
 		ts->plat_data->coord[t_id].z = 1;
 }
-static void stm_ts_fod_vi_event(struct stm_ts_data *ts)
+
+int stm_ts_fod_vi_event(struct stm_ts_data *ts)
 {
 	int ret = 0;
 
 	ts->plat_data->fod_data.vi_data[0] = SEC_TS_CMD_SPONGE_FOD_POSITION;
+	ts->plat_data->fod_data.vi_data[1] = 0x00;
 	ret = ts->stm_ts_read_sponge(ts, ts->plat_data->fod_data.vi_data, ts->plat_data->fod_data.vi_size);
 	if (ret < 0)
 		input_info(true, &ts->client->dev, "%s: failed read fod vi\n", __func__);
+
+	return ret;
 }
 
 static void stm_ts_gesture_event(struct stm_ts_data *ts, u8 *event_buff)
@@ -826,7 +1808,7 @@ static int stm_ts_get_event(struct stm_ts_data *ts, u8 *data, int *remain_event_
 	u8 address = 0;
 
 	address = STM_TS_READ_ONE_EVENT;
-	ret = ts->stm_ts_i2c_read(ts, &address, 1, (u8 *)data, STM_TS_EVENT_BUFF_SIZE);
+	ret = ts->stm_ts_read(ts, &address, 1, (u8 *)data, STM_TS_EVENT_BUFF_SIZE);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: i2c read one event failed\n", __func__);
 		return ret;
@@ -849,7 +1831,7 @@ static int stm_ts_get_event(struct stm_ts_data *ts, u8 *data, int *remain_event_
 	if (*remain_event_count > MAX_EVENT_COUNT - 1) {
 		input_err(true, &ts->client->dev, "%s: event buffer overflow\n", __func__);
 		address = STM_TS_CMD_CLEAR_ALL_EVENT;
-		ret = ts->stm_ts_i2c_write(ts, &address, 1, NULL, 0); //guide
+		ret = ts->stm_ts_write(ts, &address, 1, NULL, 0); //guide
 		if (ret < 0)
 			input_err(true, &ts->client->dev, "%s: i2c write clear event failed\n", __func__);
 
@@ -860,7 +1842,7 @@ static int stm_ts_get_event(struct stm_ts_data *ts, u8 *data, int *remain_event_
 
 	if (*remain_event_count > 0) {
 		address = STM_TS_READ_ALL_EVENT;
-		ret = ts->stm_ts_i2c_read(ts, &address, 1, &data[1 * STM_TS_EVENT_BUFF_SIZE],
+		ret = ts->stm_ts_read(ts, &address, 1, &data[1 * STM_TS_EVENT_BUFF_SIZE],
 				 (STM_TS_EVENT_BUFF_SIZE) * (*remain_event_count));
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: i2c read one event failed\n", __func__);
@@ -880,6 +1862,8 @@ irqreturn_t stm_ts_irq_thread(int irq, void *ptr)
 	u8 *event_buff;
 	int curr_pos;
 	int remain_event_count;
+	char taas[32];
+	char tresult[64];
 	ret = event_id = curr_pos = remain_event_count = 0;
 
 #if IS_ENABLED(CONFIG_INPUT_SEC_SECURE_TOUCH)
@@ -928,10 +1912,25 @@ irqreturn_t stm_ts_irq_thread(int irq, void *ptr)
 				__func__, (event_buff[1] == 0x01 ? "echo": ""), event_buff[0], event_buff[1], event_buff[2], event_buff[3], event_buff[4], event_buff[5],
 				event_buff[6], event_buff[7], event_buff[8], event_buff[9], event_buff[10], event_buff[11],
 				event_buff[12], event_buff[13], event_buff[14], event_buff[15]);
+
+			if (event_buff[2] == STM_TS_CMD_SET_GET_OPMODE && event_buff[3] == STM_TS_OPMODE_NORMAL) {
+				sec_input_gesture_report(&ts->client->dev, SPONGE_EVENT_TYPE_TSP_SCAN_UNBLOCK, 0, 0);
+				input_info(true, &ts->client->dev, "%s: Normal changed\n", __func__);
+			} else if (event_buff[2] == STM_TS_CMD_SET_GET_OPMODE && event_buff[3] == STM_TS_OPMODE_LOWPOWER) {
+				sec_input_gesture_report(&ts->client->dev, SPONGE_EVENT_TYPE_TSP_SCAN_UNBLOCK, 0, 0);
+				input_info(true, &ts->client->dev, "%s: lp changed\n", __func__);
+			}
+
 			if ((event_buff[0] == 0xF3) && ((event_buff[1] == 0x02) || (event_buff[1] == 0x46))) {
 				if (!ts->reset_is_on_going)
 					schedule_delayed_work(&ts->reset_work, msecs_to_jiffies(10));
 				break;
+			}
+
+			if ((event_buff[0] == 0x43) && (event_buff[1] == 0x05) && (event_buff[1] == 0x11)) {
+				snprintf(taas, sizeof(taas), "TAAS=CASB");
+				snprintf(tresult, sizeof(tresult), "RESULT=STM TSP Force Calibration Event");
+				sec_cmd_send_event_to_user(&ts->sec, taas, tresult);
 			}
 		} else {
 			input_info(true, &ts->client->dev,
@@ -955,7 +1954,13 @@ int stm_ts_input_open(struct input_dev *dev)
 {
 	struct stm_ts_data *ts = input_get_drvdata(dev);
 	int ret;
+	u8 data[2] = { 0 };
+	int retrycnt = 0;
 
+	if (!ts->probe_done) {
+		input_err(true, &ts->client->dev, "%s: device probe is not done\n", __func__);
+		return 0;
+	}
 	cancel_delayed_work_sync(&ts->work_read_info);
 
 	mutex_lock(&ts->modechange);
@@ -977,11 +1982,38 @@ int stm_ts_input_open(struct input_dev *dev)
 	}
 
 	if (ts->fix_active_mode) 
-		stm_ts_fix_active_mode(ts, true);
+		stm_ts_fix_active_mode(ts, STM_TS_ACTIVE_TRUE);
 
 	sec_input_set_temperature(&ts->client->dev, SEC_INPUT_SET_TEMPERATURE_FORCE);
 
 	mutex_unlock(&ts->modechange);
+
+retry_fodmode:
+	if (ts->plat_data->support_fod && (ts->plat_data->lowpower_mode & SEC_TS_MODE_SPONGE_PRESS)) {
+		data[0] = STM_TS_CMD_SPONGE_OFFSET_MODE;
+		ret = ts->stm_ts_read_sponge(ts, data, 2);
+		if (ret < 0) {
+			input_err(true, &ts->client->dev, "%s: Failed to read sponge offset data\n", __func__);
+			retrycnt++;
+			if(retrycnt < 5)
+				goto retry_fodmode;
+
+		}
+		input_info(true, &ts->client->dev, "%s: read offset data(0x%x)\n", __func__, data[0]);
+
+		if((data[0] & SEC_TS_MODE_SPONGE_PRESS) != (ts->plat_data->lowpower_mode & SEC_TS_MODE_SPONGE_PRESS)) {
+			input_err(true, &ts->client->dev, "%s: fod data not matched(%d,%d) retry %d\n",
+					__func__, (data[0] & SEC_TS_MODE_SPONGE_PRESS),
+					(ts->plat_data->lowpower_mode & SEC_TS_MODE_SPONGE_PRESS), retrycnt);
+			retrycnt++;
+			/*rewrite*/
+			stm_ts_set_custom_library(ts);
+			stm_ts_set_press_property(ts);
+			stm_ts_set_fod_finger_merge(ts);
+			if (retrycnt < 5)
+				goto retry_fodmode;
+		}
+	}
 
 	cancel_delayed_work(&ts->work_print_info);
 	ts->plat_data->print_info_cnt_open = 0;
@@ -995,6 +2027,10 @@ void stm_ts_input_close(struct input_dev *dev)
 {
 	struct stm_ts_data *ts = input_get_drvdata(dev);
 
+	if (!ts->probe_done) {
+		input_err(true, &ts->client->dev, "%s: device probe is not done\n", __func__);
+		return;
+	}
 	cancel_delayed_work_sync(&ts->work_read_info);
 
 	if (ts->plat_data->shutdown_called) {
@@ -1020,10 +2056,13 @@ void stm_ts_input_close(struct input_dev *dev)
 
 	cancel_delayed_work(&ts->reset_work);
 
-	if (ts->plat_data->lowpower_mode || ts->plat_data->ed_enable || ts->plat_data->pocket_mode || ts->plat_data->fod_lp_mode)
+	if (ts->plat_data->lowpower_mode || ts->plat_data->ed_enable || ts->plat_data->pocket_mode || ts->plat_data->fod_lp_mode) {
+		if (ts->fix_active_mode)
+				stm_ts_fix_active_mode(ts, STM_TS_ACTIVE_FALSE);
 		ts->plat_data->lpmode(ts, TO_LOWPOWER_MODE);
-	else
+	} else {
 		ts->plat_data->stop_device(ts);
+	}
 
 	mutex_unlock(&ts->modechange);
 }
@@ -1078,22 +2117,18 @@ int stm_ts_start_device(void *data)
 
 	ts->plat_data->power(&ts->client->dev, true);
 
-	sec_delay(20);
+	sec_delay(TOUCH_POWER_ON_DWORK_TIME);
 
 	ts->plat_data->power_state = SEC_INPUT_STATE_POWER_ON;
 	ts->plat_data->touch_noise_status = 0;
 
 	ts->plat_data->init(ts);
 
-	ret = stm_ts_read_chip_id(ts);
-	if (ret < 0) {
-		input_err(true, &ts->client->dev, "%s: Failed to read chip id\n", __func__);
-		return ret;
-	}
+	stm_ts_read_chip_id(ts);
 
 	/* Sense_on */
 	address = STM_TS_CMD_SENSE_ON;
-	ret = ts->stm_ts_i2c_write(ts, &address, 1, NULL, 0);
+	ret = ts->stm_ts_write(ts, &address, 1, NULL, 0);
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "%s: fail to write Sense_on\n", __func__);
 
@@ -1103,13 +2138,11 @@ out:
 	return ret;
 }
 
-static int stm_ts_hw_init(struct i2c_client *client)
+static int stm_ts_hw_init(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts = i2c_get_clientdata(client);
 	int ret = 0;
 	int retry = 3;
-	u8 reg[3] = { 0 };
-	u8 data[STM_TS_EVENT_BUFF_SIZE] = { 0 };
+
 	ts->plat_data->pinctrl_configure(&ts->client->dev, true);
 
 	ts->plat_data->power(&ts->client->dev, true);
@@ -1117,12 +2150,9 @@ static int stm_ts_hw_init(struct i2c_client *client)
 		sec_delay(TOUCH_POWER_ON_DWORK_TIME);
 
 	ts->plat_data->power_state = SEC_INPUT_STATE_POWER_ON;
-
-	ret = ts->stm_ts_i2c_read(ts, &reg[0], 1, data, STM_TS_EVENT_BUFF_SIZE);
-	if (ret == -ENOTCONN) {
-		return ret;
-	}
-	
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_STM_SPI)
+	stm_ts_set_spi_mode(ts);
+#endif
 	do {
 		ret = stm_ts_fw_corruption_check(ts);
 		if (ret == -STM_TS_ERROR_FW_CORRUPTION) {
@@ -1134,12 +2164,7 @@ static int stm_ts_hw_init(struct i2c_client *client)
 			} else if (ts->plat_data->hw_param.checksum_result) {
 				break;
 			} else if (ret == -STM_TS_ERROR_TIMEOUT_ZERO) {
-				ret = stm_ts_read_chip_id_hw(ts);
-				if (ret == STM_TS_NOT_ERROR) {
-					ts->plat_data->hw_param.checksum_result = 1;
-					input_err(true, &ts->client->dev, "%s: config corruption\n", __func__);
-					break;
-				}
+				stm_ts_read_chip_id_hw(ts);
 			}
 			stm_ts_systemreset(ts, 20);
 		} else {
@@ -1160,19 +2185,14 @@ static int stm_ts_hw_init(struct i2c_client *client)
 		ts->config_version_of_ic = 0;
 		ts->fw_main_version_of_ic = 0;
 	}
-
-	ret = stm_ts_read_chip_id(ts);
-	if (ret < 0) {
-		stm_ts_systemreset(ts, 500);	/* Delay to discharge the IC from ESD or On-state.*/
-		input_err(true, &ts->client->dev, "%s: Reset caused by chip id error\n", __func__);
-		stm_ts_read_chip_id(ts);
-	}
+	
+	stm_ts_read_chip_id(ts);
 
 	ret = stm_ts_fw_update_on_probe(ts);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Failed to firmware update\n",
 				__func__);
-		return STM_TS_ERROR_FW_UPDATE_FAIL;
+		return -STM_TS_ERROR_FW_UPDATE_FAIL;
 	}
 
 	ret = stm_ts_get_channel_info(ts);
@@ -1227,67 +2247,35 @@ static int stm_ts_hw_init(struct i2c_client *client)
 	return ret;
 }
 
-static int stm_ts_init(struct i2c_client *client)
+static int stm_ts_init(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts;
-	struct sec_ts_plat_data *pdata;
-	struct sec_tclm_data *tdata = NULL;
 	int ret = 0;
 
-	if (client->dev.of_node) {
-		pdata = devm_kzalloc(&client->dev,
-				sizeof(struct sec_ts_plat_data), GFP_KERNEL);
-
-		if (!pdata) {
-			ret = -ENOMEM;
-			goto error_allocate_pdata;
-		}
-
-		client->dev.platform_data = pdata;
-
-		ret = sec_input_parse_dt(&client->dev);
+	if (ts->client->dev.of_node) {
+		ret = sec_input_parse_dt(&ts->client->dev);
 		if (ret) {
-			input_err(true, &client->dev, "%s: Failed to parse dt\n", __func__);
+			input_err(true, &ts->client->dev, "%s: Failed to parse dt\n", __func__);
 			goto error_allocate_mem;
 		}
-		tdata = devm_kzalloc(&client->dev,
-				sizeof(struct sec_tclm_data), GFP_KERNEL);
-		if (!tdata) {
-			ret = -ENOMEM;
-			goto error_allocate_tdata;
-		}
-
 #ifdef TCLM_CONCEPT
-		sec_tclm_parse_dt(&client->dev, tdata);
+		sec_tclm_parse_dt(&ts->client->dev, ts->tdata);
 #endif
 	} else {
-		pdata = client->dev.platform_data;
-		if (!pdata) {
+		ts->plat_data = ts->client->dev.platform_data;
+		if (!ts->plat_data) {
 			ret = -ENOMEM;
-			input_err(true, &client->dev, "%s: No platform data found\n", __func__);
+			input_err(true, &ts->client->dev, "%s: No platform data found\n", __func__);
 			goto error_allocate_pdata;
 		}
 	}
 
-	pdata->pinctrl = devm_pinctrl_get(&client->dev);
-	if (IS_ERR(pdata->pinctrl))
-		input_err(true, &client->dev, "%s: could not get pinctrl\n", __func__);
+	ts->plat_data->pinctrl = devm_pinctrl_get(&ts->client->dev);
+	if (IS_ERR(ts->plat_data->pinctrl))
+		input_err(true, &ts->client->dev, "%s: could not get pinctrl\n", __func__);
 
-	ts = devm_kzalloc(&client->dev, sizeof(struct stm_ts_data), GFP_KERNEL);
-	if (!ts) {
-		ret = -ENOMEM;
-		goto error_allocate_mem;
-	}
+	ts->client->irq = gpio_to_irq(ts->plat_data->irq_gpio);
 
-	client->irq = gpio_to_irq(pdata->irq_gpio);
-
-	ts->client = client;
-	ts->plat_data = pdata;
-	ts->irq = client->irq;
-	ts->stm_ts_i2c_read = stm_ts_i2c_read;
-	ts->stm_ts_i2c_write = stm_ts_i2c_write;
-	ts->stm_ts_read_sponge = stm_ts_read_from_sponge;
-	ts->stm_ts_write_sponge = stm_ts_write_to_sponge;
+	ts->irq = ts->client->irq;
 	ts->stm_ts_systemreset = stm_ts_systemreset;
 	ts->stm_ts_command = stm_ts_command;
 
@@ -1300,26 +2288,10 @@ static int stm_ts_init(struct i2c_client *client)
 	ts->plat_data->set_grip_data = stm_set_grip_data_to_ic;
 	ts->plat_data->set_temperature = stm_ts_set_temperature;
 
-	ptsp = &client->dev;
-
-#if IS_ENABLED(CONFIG_SAMSUNG_TUI)
-	ts->plat_data->stui_tsp_enter = stm_stui_tsp_enter;
-	ts->plat_data->stui_tsp_exit = stm_stui_tsp_exit;
-	ts->plat_data->stui_tsp_type = stm_stui_tsp_type;
-#endif
-
-	ts->tdata = tdata;
-	if (!ts->tdata) {
-		ret = -ENOMEM;
-		goto err_null_tdata;
-	}
+	ptsp = &ts->client->dev;
 
 #ifdef TCLM_CONCEPT
 	sec_tclm_initialize(ts->tdata);
-	ts->tdata->client = ts->client;
-	ts->tdata->tclm_read = stm_tclm_data_read;
-	ts->tdata->tclm_write = stm_tclm_data_write;
-	ts->tdata->tclm_execute_force_calibration = stm_ts_tclm_execute_force_calibration;
 	ts->tdata->tclm_parse_dt = sec_tclm_parse_dt;
 #endif
 
@@ -1327,22 +2299,25 @@ static int stm_ts_init(struct i2c_client *client)
 	INIT_DELAYED_WORK(&ts->work_read_info, stm_ts_read_info_work);
 	INIT_DELAYED_WORK(&ts->work_print_info, stm_ts_print_info_work);
 	INIT_DELAYED_WORK(&ts->work_read_functions, stm_ts_get_touch_function);
+
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+	INIT_DELAYED_WORK(&ts->plat_data->interrupt_notify_work, stm_ts_interrupt_notify);
+#endif
+
 	mutex_init(&ts->device_mutex);
-	mutex_init(&ts->i2c_mutex);
+	mutex_init(&ts->read_write_mutex);
 	mutex_init(&ts->eventlock);
 	mutex_init(&ts->modechange);
 	mutex_init(&ts->sponge_mutex);
 	mutex_init(&ts->fn_mutex);
 
 	ts->plat_data->sec_ws = wakeup_source_register(&ts->client->dev, "tsp");
-	device_init_wakeup(&client->dev, true);
+	device_init_wakeup(&ts->client->dev, true);
 
 	init_completion(&ts->plat_data->resume_done);
 	complete_all(&ts->plat_data->resume_done);
 
-	i2c_set_clientdata(client, ts);
-
-	ret = sec_input_device_register(&client->dev, ts);
+	ret = sec_input_device_register(&ts->client->dev, ts);
 	if (ret) {
 		input_err(true, &ts->client->dev, "failed to register input device, %d\n", ret);
 		goto err_register_input_device;
@@ -1364,39 +2339,51 @@ static int stm_ts_init(struct i2c_client *client)
 		secure_touch_init(ts);
 
 	sec_secure_touch_register(ts, ts->plat_data->ss_touch_num, &ts->plat_data->input_dev->dev.kobj);
+
+#if IS_ENABLED(CONFIG_GH_RM_DRV)
+	stm_ts_trusted_touch_init(ts);
+	mutex_init(&ts->clk_io_ctrl_mutex);
+	mutex_init(&ts->transition_lock);
+#endif
 #endif
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_DUMP_MODE)
 	dump_callbacks.inform_dump = stm_ts_dump_tsp_log;
 	INIT_DELAYED_WORK(&ts->check_rawdata, stm_ts_check_rawdata);
 #endif
-	input_info(true, &client->dev, "%s: init resource\n", __func__);
+	input_info(true, &ts->client->dev, "%s: init resource\n", __func__);
 
 	return 0;
 
 err_fn_init:
 err_register_input_device:
 	wakeup_source_unregister(ts->plat_data->sec_ws);
-err_null_tdata:
-error_allocate_mem:
-	regulator_put(pdata->dvdd);
-	regulator_put(pdata->avdd);
-error_allocate_tdata:
+	regulator_put(ts->plat_data->dvdd);
+	regulator_put(ts->plat_data->avdd);
 error_allocate_pdata:
-	input_err(true, &client->dev, "%s: failed(%d)\n", __func__, ret);
+error_allocate_mem:
+	input_err(true, &ts->client->dev, "%s: failed(%d)\n", __func__, ret);
 	input_log_fix();
 	return ret;
 }
 
-void stm_ts_release(struct i2c_client *client)
+void stm_ts_release(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts = i2c_get_clientdata(client);
-
 	input_info(true, &ts->client->dev, "%s\n", __func__);
+
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+	sec_input_unregister_notify(&ts->stm_input_nb);
+#endif
+#if IS_ENABLED(CONFIG_VBUS_NOTIFIER)
+	vbus_notifier_unregister(&ts->vbus_nb);
+#endif
 
 	cancel_delayed_work_sync(&ts->work_read_info);
 	cancel_delayed_work_sync(&ts->work_print_info);
 	cancel_delayed_work_sync(&ts->work_read_functions);
 	cancel_delayed_work_sync(&ts->reset_work);
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+	cancel_delayed_work_sync(&ts->plat_data->interrupt_notify_work);
+#endif
 	flush_delayed_work(&ts->reset_work);
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_DUMP_MODE)
 	cancel_delayed_work_sync(&ts->check_rawdata);
@@ -1404,7 +2391,7 @@ void stm_ts_release(struct i2c_client *client)
 #endif
 	stm_ts_fn_remove(ts);
 
-	device_init_wakeup(&client->dev, false);
+	device_init_wakeup(&ts->client->dev, false);
 	wakeup_source_unregister(ts->plat_data->sec_ws);
 
 	ts->plat_data->lowpower_mode = false;
@@ -1417,48 +2404,56 @@ void stm_ts_release(struct i2c_client *client)
 }
 
 
-int stm_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
+int stm_ts_probe(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts;
 	int ret = 0;
+#if IS_MODULE(CONFIG_TOUCHSCREEN_STM) || IS_MODULE(CONFIG_TOUCHSCREEN_STM_SPI)
+	static int deferred_flag = 0;
 
-	input_info(true, &client->dev, "%s\n", __func__);
-
-	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		input_err(true, &client->dev, "%s: EIO err!\n", __func__);
-		return -EIO;
+	if (!deferred_flag) {
+		deferred_flag = 1;
+		input_info(true, &ts->client->dev, "deferred_flag boot %s\n", __func__);
+		return -EPROBE_DEFER;
 	}
+#endif
 
-	ret = stm_ts_init(client);
+	input_info(true, &ts->client->dev, "%s\n", __func__);
+
+	ret = stm_ts_init(ts);
 	if (ret < 0) {
-		input_err(true, &client->dev, "%s: fail to init resource\n", __func__);
+		input_err(true, &ts->client->dev, "%s: fail to init resource\n", __func__);
 		return ret;
 	}
 
-	ts = i2c_get_clientdata(client);
-
-	ret = stm_ts_hw_init(client);
+	ret = stm_ts_hw_init(ts);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: fail to init hw\n", __func__);
-		stm_ts_release(client);
+		stm_ts_release(ts);
 		return ret;
 	}
 
 	stm_ts_get_custom_library(ts);
 	stm_ts_set_custom_library(ts);
 
-	input_info(true, &ts->client->dev, "%s: request_irq = %d\n", __func__, client->irq);
-	ret = request_threaded_irq(client->irq, NULL, stm_ts_irq_thread,
+	input_info(true, &ts->client->dev, "%s: request_irq = %d\n", __func__, ts->client->irq);
+	ret = request_threaded_irq(ts->client->irq, NULL, stm_ts_irq_thread,
 			IRQF_TRIGGER_LOW | IRQF_ONESHOT, STM_TS_I2C_NAME, ts);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: Unable to request threaded irq\n", __func__);
-		stm_ts_release(client);
+		stm_ts_release(ts);
 		return ret;
 	}
 
 	ts->probe_done = true;
 	ts->plat_data->enabled = true;
 
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+	sec_input_register_notify(&ts->stm_input_nb, stm_touch_notify_call, 1);
+#endif
+#if IS_ENABLED(CONFIG_VBUS_NOTIFIER)
+	vbus_notifier_register(&ts->vbus_nb, stm_ts_vbus_notification,
+						VBUS_NOTIFY_DEV_CHARGER);
+#endif
 
 	input_err(true, &ts->client->dev, "%s: done\n", __func__);
 	input_log_fix();
@@ -1466,15 +2461,19 @@ int stm_ts_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (!ts->plat_data->shutdown_called)
 		schedule_delayed_work(&ts->work_read_info, msecs_to_jiffies(50));
 
+#if !IS_ENABLED(CONFIG_SAMSUNG_PRODUCT_SHIP) && IS_ENABLED(CONFIG_TOUCHSCREEN_STM_SPI)
+	stm_ts_tool_proc_init(ts);
+#endif
 	return 0;
 }
 
-int stm_ts_remove(struct i2c_client *client)
+int stm_ts_remove(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts = i2c_get_clientdata(client);
-
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
+#if !IS_ENABLED(CONFIG_SAMSUNG_PRODUCT_SHIP) && IS_ENABLED(CONFIG_TOUCHSCREEN_STM_SPI)
+	stm_ts_tool_proc_remove();
+#endif
 	mutex_lock(&ts->modechange);
 	ts->plat_data->shutdown_called = true;
 	mutex_unlock(&ts->modechange);
@@ -1482,82 +2481,33 @@ int stm_ts_remove(struct i2c_client *client)
 	disable_irq_nosync(ts->client->irq);
 	free_irq(ts->client->irq, ts);
 
-	stm_ts_release(client);
+	stm_ts_release(ts);
 
 	return 0;
 }
 
-void stm_ts_shutdown(struct i2c_client *client)
+void stm_ts_shutdown(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts = i2c_get_clientdata(client);
-
 	input_info(true, &ts->client->dev, "%s\n", __func__);
 
-	stm_ts_remove(client);
+	stm_ts_remove(ts);
 }
 
 
 #if IS_ENABLED(CONFIG_PM)
-static int stm_ts_pm_suspend(struct device *dev)
+int stm_ts_pm_suspend(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts = dev_get_drvdata(dev);
-
 	reinit_completion(&ts->plat_data->resume_done);
 
 	return 0;
 }
 
-static int stm_ts_pm_resume(struct device *dev)
+int stm_ts_pm_resume(struct stm_ts_data *ts)
 {
-	struct stm_ts_data *ts = dev_get_drvdata(dev);
-
 	complete_all(&ts->plat_data->resume_done);
 
 	return 0;
 }
 #endif
 
-
-static const struct i2c_device_id stm_ts_id[] = {
-	{ STM_TS_I2C_NAME, 0 },
-	{ },
-};
-
-#if IS_ENABLED(CONFIG_PM)
-static const struct dev_pm_ops stm_ts_dev_pm_ops = {
-	.suspend = stm_ts_pm_suspend,
-	.resume = stm_ts_pm_resume,
-};
-#endif
-
-#if IS_ENABLED(CONFIG_OF)
-static const struct of_device_id stm_ts_match_table[] = {
-	{ .compatible = "stm,stm_ts",},
-	{ },
-};
-#else
-#define stm_ts_match_table NULL
-#endif
-
-static struct i2c_driver stm_ts_driver = {
-	.probe		= stm_ts_probe,
-	.remove		= stm_ts_remove,
-	.shutdown	= stm_ts_shutdown,
-	.id_table	= stm_ts_id,
-	.driver = {
-		.owner	= THIS_MODULE,
-		.name	= STM_TS_I2C_NAME,
-#if IS_ENABLED(CONFIG_OF)
-		.of_match_table = stm_ts_match_table,
-#endif
-#if IS_ENABLED(CONFIG_PM)
-		.pm = &stm_ts_dev_pm_ops,
-#endif
-	},
-};
-
-module_i2c_driver(stm_ts_driver);
-
-MODULE_SOFTDEP("pre: acpm-mfd-bus");
-MODULE_DESCRIPTION("stm TouchScreen driver");
 MODULE_LICENSE("GPL");

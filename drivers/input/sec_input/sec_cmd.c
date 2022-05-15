@@ -15,6 +15,13 @@
 
 struct class *tsp_sec_class;
 
+#if IS_ENABLED(CONFIG_SEC_KUNIT)
+__visible_for_testing struct sec_cmd_data *kunit_sec;
+EXPORT_SYMBOL(kunit_sec);
+#else
+#define __visible_for_testing static
+#endif
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
 static struct sec_cmd_data *main_sec;
 static struct sec_cmd_data *sub_sec;
@@ -126,7 +133,7 @@ void sec_cmd_set_cmd_result(struct sec_cmd_data *data, char *buff, int len)
 EXPORT_SYMBOL(sec_cmd_set_cmd_result);
 
 #ifndef USE_SEC_CMD_QUEUE
-static ssize_t sec_cmd_store(struct device *dev,
+__visible_for_testing ssize_t sec_cmd_store(struct device *dev,
 		struct device_attribute *devattr, const char *buf, size_t count)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -368,7 +375,7 @@ static void sec_cmd_store_function(struct sec_cmd_data *data)
 	}
 }
 
-static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devattr,
+__visible_for_testing ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devattr,
 			   const char *buf, size_t count)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -390,6 +397,12 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 	if (count >= (unsigned int)SEC_CMD_STR_LEN) {
 		pr_err("%s: %s %s: cmd length(count) is over (%d,%s)!!\n",
 				dev_name(data->fac_dev), SECLOG, __func__, (unsigned int)count, buf);
+		return -EINVAL;
+	}
+
+	if (strnlen(buf, SEC_CMD_STR_LEN) == 0) {
+		pr_err("%s: %s %s: cmd length is zero (%d,%s) count(%ld)!!\n",
+				dev_name(data->fac_dev), SECLOG, __func__, (int)strlen(buf), buf, count);
 		return -EINVAL;
 	}
 
@@ -471,7 +484,7 @@ static ssize_t sec_cmd_store(struct device *dev, struct device_attribute *devatt
 }
 #endif
 
-static ssize_t sec_cmd_show_status(struct device *dev,
+__visible_for_testing ssize_t sec_cmd_show_status(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -539,7 +552,7 @@ static ssize_t sec_cmd_show_status_all(struct device *dev,
 	return snprintf(buf, SEC_CMD_BUF_SIZE, "%s\n", buff);
 }
 
-static ssize_t sec_cmd_show_result(struct device *dev,
+__visible_for_testing ssize_t sec_cmd_show_result(struct device *dev,
 				 struct device_attribute *devattr, char *buf)
 {
 	struct sec_cmd_data *data = dev_get_drvdata(dev);
@@ -729,7 +742,7 @@ int sec_cmd_init(struct sec_cmd_data *data, struct sec_cmd *cmds,
 		pr_err("%s %s: failed to create sysfs group\n", SECLOG, __func__);
 		goto err_sysfs_group;
 	}
-	
+
 #if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
 	switch (devt) {
 	case SEC_CLASS_DEVT_TSP1:
@@ -801,6 +814,13 @@ void sec_cmd_exit(struct sec_cmd_data *data, int devt)
 	kfree(data->cmd_result);
 	mutex_destroy(&data->cmd_lock);
 	list_del(&data->cmd_list_head);
+
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
+	if (devt == SEC_CLASS_DEVT_TSP1)
+		main_sec = NULL;
+	if (devt == SEC_CLASS_DEVT_TSP2)
+		sub_sec = NULL;
+#endif
 }
 EXPORT_SYMBOL(sec_cmd_exit);
 
@@ -810,7 +830,7 @@ void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *res
 	char timestamp[32];
 	char feature[32];
 	char stest[32];
-	char sresult[32];
+	char sresult[64];
 	ktime_t calltime;
 	u64 realtime;
 	int curr_time;
@@ -836,9 +856,9 @@ void sec_cmd_send_event_to_user(struct sec_cmd_data *data, char *test, char *res
 	strncat(stest, eol, 1);
 
 	if (!result) {
-		snprintf(sresult, 32, "RESULT=NULL");
+		snprintf(sresult, 64, "RESULT=NULL");
 	} else {
-		snprintf(sresult, 32, "%s", result);
+		snprintf(sresult, 64, "%s", result);
 	}
 	strncat(sresult, eol, 1);
 
@@ -867,6 +887,41 @@ void sec_cmd_virtual_tsp_register(struct sec_cmd_data *sec)
 	}
 }
 
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 10, 0))
+int sec_cmd_virtual_tsp_read_sysfs(struct sec_cmd_data *sec, const char *path, char *buf, int len)
+{
+	int ret = 0;
+
+	if (main_sec) {
+		if (strcmp(path, PATH_MAIN_SEC_CMD_STATUS) == 0)
+			sec_cmd_show_status(main_sec->fac_dev, NULL, buf);
+		else if (strcmp(path, PATH_MAIN_SEC_CMD_RESULT) == 0)
+			sec_cmd_show_result(main_sec->fac_dev, NULL, buf);
+		else if (strcmp(path, PATH_MAIN_SEC_CMD_STATUS_ALL) == 0)
+			sec_cmd_show_status_all(main_sec->fac_dev, NULL, buf);
+		else if (strcmp(path, PATH_MAIN_SEC_CMD_RESULT_ALL) == 0)
+			sec_cmd_show_result_all(main_sec->fac_dev, NULL, buf);
+	}
+
+	if (sub_sec) {
+		if (strcmp(path, PATH_SUB_SEC_CMD_STATUS) == 0)
+			sec_cmd_show_status(sub_sec->fac_dev, NULL, buf);
+		else if (strcmp(path, PATH_SUB_SEC_CMD_RESULT) == 0)
+			sec_cmd_show_result(sub_sec->fac_dev, NULL, buf);
+		else if (strcmp(path, PATH_SUB_SEC_CMD_STATUS_ALL) == 0)
+			sec_cmd_show_status_all(sub_sec->fac_dev, NULL, buf);
+		else if (strcmp(path, PATH_SUB_SEC_CMD_RESULT_ALL) == 0)
+			sec_cmd_show_result_all(sub_sec->fac_dev, NULL, buf);
+	}
+
+	if (ret < 0) {
+		input_err(true, sec->fac_dev, "%s: failed to read, len:%d, ret:%d\n", __func__, len, ret);
+		ret = -EIO;
+	}
+
+	return ret;
+}
+#else
 int sec_cmd_virtual_tsp_read_sysfs(struct sec_cmd_data *sec, const char *path, char *buf, int len)
 {
 	int ret = 0;
@@ -895,8 +950,32 @@ int sec_cmd_virtual_tsp_read_sysfs(struct sec_cmd_data *sec, const char *path, c
 
 	return ret;
 }
+#endif
 EXPORT_SYMBOL(sec_cmd_virtual_tsp_read_sysfs);
 
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(5, 10, 0))
+int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, const char *cmd)
+{
+	int ret = 0;
+	int len;
+
+	len = strlen(cmd);
+	if (strcmp(path, PATH_MAIN_SEC_CMD) == 0) {
+		if (main_sec)
+			ret = sec_cmd_store(main_sec->fac_dev, NULL, cmd, len);
+
+	} else if (strcmp(path, PATH_SUB_SEC_CMD) == 0) {
+		if (sub_sec)
+			ret = sec_cmd_store(sub_sec->fac_dev, NULL, cmd, len);
+	}
+	if (ret != len) {
+		input_err(true, sec->fac_dev, "%s: failed to write, len:%d, ret:%d\n", __func__, len, ret);
+		ret = -EIO;
+	}
+
+	return ret;
+}
+#else
 int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, const char *cmd)
 {
 	int ret = 0;
@@ -904,6 +983,7 @@ int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, 
 	struct file *sysfs;
 	int len;
 
+	len = strlen(cmd);
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
@@ -915,7 +995,6 @@ int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, 
 		return ret;
 	}
 
-	len = strlen(cmd);
 	ret = sysfs->f_op->write(sysfs, cmd, len, &sysfs->f_pos);
 	if (ret != len) {
 		input_err(true, sec->fac_dev, "%s: failed to write, len:%d, ret:%d\n", __func__, len, ret);
@@ -927,6 +1006,7 @@ int sec_cmd_virtual_tsp_write_sysfs(struct sec_cmd_data *sec, const char *path, 
 
 	return ret;
 }
+#endif
 EXPORT_SYMBOL(sec_cmd_virtual_tsp_write_sysfs);
 
 static int sec_cmd_virtual_tsp_get_cmd_status(struct sec_cmd_data *sec, char *path)
@@ -1060,6 +1140,24 @@ err:
 	sec_cmd_set_cmd_result_all(sec, buff, SEC_CMD_RESULT_STR_LEN, "NONE");
 }
 EXPORT_SYMBOL(sec_cmd_virtual_tsp_write_cmd_factory_all);
+#endif
+
+#if IS_ENABLED(CONFIG_SEC_KUNIT) && !IS_ENABLED(CONFIG_TOUCHSCREEN_DUAL_FOLDABLE)
+kunit_notifier_chain_init(sec_cmd_test_module);
+
+static int __init sec_cmd_m_init(void)
+{
+	kunit_notifier_chain_register(sec_cmd_test_module);
+	return 0;
+}
+
+static void __exit sec_cmd_m_exit(void)
+{
+	kunit_notifier_chain_unregister(sec_cmd_test_module);
+}
+
+module_init(sec_cmd_m_init);
+module_exit(sec_cmd_m_exit);
 #endif
 
 MODULE_DESCRIPTION("Samsung input command");

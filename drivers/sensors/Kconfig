@@ -27,6 +27,16 @@ config SENSORS_SX9360
 	  SemTech sx9360 device driver.
 	  Say N here if you do not use sx9360.
 
+config SENSORS_SX9380
+	depends on I2C
+	tristate "SX9380 driver"
+	default n
+	help
+	  Say Y here if you use sx9380.
+	  This option enables grip sensors using
+	  SemTech sx9380 device driver.
+	  Say N here if you do not use sx9380.
+
 config SENSORS_SX9330
 	depends on I2C
 	tristate "SX9330 driver"

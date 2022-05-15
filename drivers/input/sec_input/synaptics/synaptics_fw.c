@@ -396,7 +396,7 @@ int synaptics_ts_compare_image_id_info(struct synaptics_ts_data *ts,
 		ts->plat_data->img_version_of_ic[idx] = device_config_id[idx];
 	}
 
-	input_err(true, &ts->client->dev, "%s: bin: %02x%02x%02x%02x  ic:%02x%02x%02x%02x", __func__,
+	input_info(true, &ts->client->dev, "%s: bin: %02x%02x%02x%02x  ic:%02x%02x%02x%02x\n", __func__,
 		image_config_id[0], image_config_id[1], image_config_id[2], image_config_id[3],
 		device_config_id[0], device_config_id[1], device_config_id[2], device_config_id[3]);
 
@@ -1629,6 +1629,11 @@ int synaptics_ts_fw_update_on_probe(struct synaptics_ts_data *ts)
  	if (!ts->plat_data->firmware_name) {
 		input_err(true, &ts->client->dev, "%s: firmware name does not declair in dts\n", __func__);
 		retval = -ENOENT;
+		goto exit_fwload;
+	}
+
+	if (ts->plat_data->bringup == 1) {
+		input_info(true, &ts->client->dev, "%s: bringup 1\n", __func__);
 		goto exit_fwload;
 	}
 

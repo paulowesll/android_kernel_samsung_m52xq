@@ -18,7 +18,7 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 #include <linux/of.h>
 #endif
 #include <linux/tty.h>
@@ -537,7 +537,7 @@ static int dbmd2_uart_finish_amodel_loading(struct dbmdx_private *p)
 	return dbmd2_uart_finish_buffering(p);
 }
 
-#ifdef CONFIG_PM_SLEEP
+#if IS_ENABLED(CONFIG_PM_SLEEP)
 static int dbmdx_uart_suspend(struct device *dev)
 {
 	struct chip_interface *ci = dev_get_drvdata(dev);
@@ -567,7 +567,7 @@ static int dbmdx_uart_resume(struct device *dev)
 #define dbmdx_uart_resume NULL
 #endif /* CONFIG_PM_SLEEP */
 
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM)
 static int dbmdx_uart_runtime_suspend(struct device *dev)
 {
 	struct chip_interface *ci = dev_get_drvdata(dev);
@@ -635,7 +635,7 @@ static const struct of_device_id dbmd2_uart_of_match[] = {
 	{ .compatible = "dspg,dbmd2-uart", },
 	{},
 };
-#ifdef CONFIG_SND_SOC_DBMDX
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX)
 MODULE_DEVICE_TABLE(of, dbmd2_uart_of_match);
 #endif
 
@@ -643,7 +643,7 @@ static struct platform_driver dbmd2_uart_platform_driver = {
 	.driver = {
 		.name = "dbmd2-uart",
 		.owner = THIS_MODULE,
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 		.of_match_table = dbmd2_uart_of_match,
 #endif
 		.pm = &dbmdx_uart_pm,
@@ -652,7 +652,7 @@ static struct platform_driver dbmd2_uart_platform_driver = {
 	.remove = uart_common_remove,
 };
 
-#ifdef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && !IS_MODULE(CONFIG_SND_SOC_DBMDX))
 static int __init dbmd2_modinit(void)
 {
 	return platform_driver_register(&dbmd2_uart_platform_driver);

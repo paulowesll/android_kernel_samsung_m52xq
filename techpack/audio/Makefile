@@ -23,8 +23,12 @@ ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),a52sxq))
 include $(srctree)/techpack/audio/config/lahaina_a52s.conf
 else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),m52xq))
 include $(srctree)/techpack/audio/config/lahaina_m52.conf
+else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),a73xq))
+include $(srctree)/techpack/audio/config/lahaina_a73.conf
 else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),gts7fewifi))
 include $(srctree)/techpack/audio/config/lahaina_gts7fe.conf
+else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),xcoverpro2))
+include $(srctree)/techpack/audio/config/lahaina_xcoverpro2.conf
 else
 include $(srctree)/techpack/audio/config/lahainaauto.conf
 endif
@@ -79,9 +83,15 @@ LINUXINCLUDE    += \
 else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),m52xq))
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/lahaina_m52.h
+else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),a73xq))
+LINUXINCLUDE    += \
+                -include $(srctree)/techpack/audio/config/lahaina_a73.h
 else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),gts7fewifi))
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/lahaina_gts7fe.h
+else ifeq ($(PROJECT_NAME),$(filter $(PROJECT_NAME),xcoverpro2))
+LINUXINCLUDE    += \
+                -include $(srctree)/techpack/audio/config/lahaina_xcoverpro2.h
 else
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/lahainaautoconf.h

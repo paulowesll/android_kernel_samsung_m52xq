@@ -208,7 +208,7 @@ static int dbmd2_i2c_boot(const void *fw_data, size_t fw_size,
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
+#if IS_ENABLED(CONFIG_PM_SLEEP)
 static int dbmdx_i2c_suspend(struct device *dev)
 {
 	struct chip_interface *ci = i2c_get_clientdata(to_i2c_client(dev));
@@ -239,7 +239,7 @@ static int dbmdx_i2c_resume(struct device *dev)
 #define dbmdx_i2c_resume NULL
 #endif /* CONFIG_PM_SLEEP */
 
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM)
 static int dbmdx_i2c_runtime_suspend(struct device *dev)
 {
 	struct chip_interface *ci = i2c_get_clientdata(to_i2c_client(dev));
@@ -303,7 +303,7 @@ static const struct of_device_id dbmd2_i2c_of_match[] = {
 	{ .compatible = "dspg,dbmd2-i2c", },
 	{},
 };
-#ifdef CONFIG_SND_SOC_DBMDX
+#if IS_ENABLED(CONFIG_SND_SOC_DBMDX)
 MODULE_DEVICE_TABLE(of, dbmd2_i2c_of_match);
 #endif
 
@@ -318,7 +318,7 @@ static struct i2c_driver dbmd2_i2c_driver = {
 	.driver = {
 		.name = "dbmd2-i2c",
 		.owner = THIS_MODULE,
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 		.of_match_table = dbmd2_i2c_of_match,
 #endif
 		.pm = &dbmdx_i2c_pm,
@@ -328,7 +328,7 @@ static struct i2c_driver dbmd2_i2c_driver = {
 	.id_table = dbmd2_i2c_id,
 };
 
-#ifdef CONFIG_SND_SOC_DBMDX
+#if (IS_ENABLED(CONFIG_SND_SOC_DBMDX) && !IS_MODULE(CONFIG_SND_SOC_DBMDX))
 static int __init dbmd2_modinit(void)
 {
 	return i2c_add_driver(&dbmd2_i2c_driver);

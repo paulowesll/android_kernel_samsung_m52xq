@@ -164,7 +164,7 @@ static int dbmd4_i2c_boot(const void *fw_data, size_t fw_size,
 	return 0;
 }
 
-#ifdef CONFIG_PM_SLEEP
+#if IS_ENABLED(CONFIG_PM_SLEEP)
 static int dbmdx_i2c_suspend(struct device *dev)
 {
 	struct chip_interface *ci = i2c_get_clientdata(to_i2c_client(dev));
@@ -195,7 +195,7 @@ static int dbmdx_i2c_resume(struct device *dev)
 #define dbmdx_i2c_resume NULL
 #endif /* CONFIG_PM_SLEEP */
 
-#ifdef CONFIG_PM
+#if IS_ENABLED(CONFIG_PM)
 static int dbmdx_i2c_runtime_suspend(struct device *dev)
 {
 	struct chip_interface *ci = i2c_get_clientdata(to_i2c_client(dev));
@@ -276,7 +276,7 @@ static struct i2c_driver dbmd_4_8_i2c_driver = {
 	.driver = {
 		.name = "dbmd_4_8-i2c",
 		.owner = THIS_MODULE,
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 		.of_match_table = dbmd_4_8_i2c_of_match,
 #endif
 		.pm = &dbmdx_i2c_pm,

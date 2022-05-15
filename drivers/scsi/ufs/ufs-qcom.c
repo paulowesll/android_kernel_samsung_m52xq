@@ -4683,6 +4683,39 @@ static DEVICE_ATTR_RO(transferred_cnt);
 
 static struct device *sec_ufs_cmd_dev;
 
+static struct attribute *sec_ufs_info_attributes[] = {
+	&dev_attr_un.attr,
+	&dev_attr_lt.attr,
+	&dev_attr_lc.attr,
+	&dev_attr_man_id.attr,
+	&dev_attr_transferred_cnt.attr,
+	NULL
+};
+
+static struct attribute_group sec_ufs_info_attribute_group = {
+	.attrs	= sec_ufs_info_attributes,
+};
+
+
+void ufs_sec_create_sysfs(struct ufs_hba *hba)
+{
+	int ret;
+
+	/* sec specific vendor sysfs nodes */
+	if (!sec_ufs_cmd_dev)
+		sec_ufs_cmd_dev = sec_device_create(hba, "ufs");
+
+	if (IS_ERR(sec_ufs_cmd_dev)) {
+			pr_err("Fail to create sysfs dev\n");
+	} else {
+		ret = sysfs_create_group(&sec_ufs_cmd_dev->kobj,
+				&sec_ufs_info_attribute_group);
+		if (ret)
+			dev_err(hba->dev, "%s: Failed to create sec_ufs_info sysfs group (err = %d)\n",
+					__func__, ret);
+	}
+}
+
 static int ufs_qcom_init_sysfs(struct ufs_hba *hba)
 {
 	int ret;
@@ -4693,96 +4726,56 @@ static int ufs_qcom_init_sysfs(struct ufs_hba *hba)
 				 __func__, ret);
 
 	/* sec specific vendor sysfs nodes */
-	sec_ufs_cmd_dev = sec_device_create(hba, "ufs");
-	if (IS_ERR(sec_ufs_cmd_dev))
-		pr_err("Fail to create sysfs dev\n");
-	else {
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_un) < 0)
-			pr_err("Fail to create status sysfs file\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lt) < 0)
-			pr_err("Fail to create status sysfs file\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lc) < 0)
-			pr_err("Fail to create status sysfs file\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_man_id) < 0)
-			pr_err("Fail to create status sysfs file\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_transferred_cnt) < 0)
-			pr_err("Fail to create status sysfs file\n");
-	}
+	ufs_sec_create_sysfs(hba);
 
 	return ret;
 }
 
 #if IS_ENABLED(CONFIG_SEC_UFS_WB_FEATURE)
+static struct attribute *sec_ufs_wb_attributes[] = {
+	&dev_attr_sec_wb_support.attr,
+	&dev_attr_sec_wb_enable.attr,
+	&dev_attr_wb_up_threshold_block.attr,
+	&dev_attr_wb_up_threshold_rqs.attr,
+	&dev_attr_wb_down_threshold_block.attr,
+	&dev_attr_wb_down_threshold_rqs.attr,
+	&dev_attr_lp_wb_up_threshold_block.attr,
+	&dev_attr_lp_wb_up_threshold_rqs.attr,
+	&dev_attr_lp_wb_down_threshold_block.attr,
+	&dev_attr_lp_wb_down_threshold_rqs.attr,
+	&dev_attr_wb_on_delay_ms.attr,
+	&dev_attr_wb_off_delay_ms.attr,
+	&dev_attr_lp_wb_on_delay_ms.attr,
+	&dev_attr_lp_wb_off_delay_ms.attr,
+	&dev_attr_wb_state.attr,
+	&dev_attr_wb_current_stat.attr,
+	&dev_attr_wb_current_min_max_stat.attr,
+	&dev_attr_wb_total_stat.attr,
+	NULL
+};
+
+static struct attribute_group sec_ufs_wb_attribute_group = {
+	.attrs	= sec_ufs_wb_attributes,
+};
+
 static void ufs_sec_wb_init_sysfs(struct ufs_hba *hba)
 {
+	int ret;
+
 	/* The sec_ufs_cmd_dev must be created
 	 * in ufs_qcom_init_sysfs() before this.
 	 * If sec_ufs_cmd_dev is NULL, try to create again. */
 	if (!sec_ufs_cmd_dev)
 		sec_ufs_cmd_dev = sec_device_create(hba, "ufs");
 
-	if (IS_ERR(sec_ufs_cmd_dev))
-		pr_err("Fail to create sec ufs sysfs dev for WB\n");
-	else {
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_sec_wb_support) < 0)
-			pr_err("Fail to create status sysfs file : sec_wb_support\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_sec_wb_enable) < 0)
-			pr_err("Fail to create status sysfs file : sec_wb_enable\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_up_threshold_block) < 0)
-			pr_err("Fail to create status sysfs file : wb_up_threshold_block\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_up_threshold_rqs) < 0)
-			pr_err("Fail to create status sysfs file : wb_up_threshold_rqs\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_down_threshold_block) < 0)
-			pr_err("Fail to create status sysfs file : wb_down_threshold_block\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_down_threshold_rqs) < 0)
-			pr_err("Fail to create status sysfs file : wb_down_threshold_rqs\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lp_wb_up_threshold_block) < 0)
-			pr_err("Fail to create status sysfs file : lp_wb_up_threshold_block\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lp_wb_up_threshold_rqs) < 0)
-			pr_err("Fail to create status sysfs file : lp_wb_up_threshold_rqs\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lp_wb_down_threshold_block) < 0)
-			pr_err("Fail to create status sysfs file : lp_wb_down_threshold_block\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lp_wb_down_threshold_rqs) < 0)
-			pr_err("Fail to create status sysfs file : lp_wb_down_threshold_rqs\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_on_delay_ms) < 0)
-			pr_err("Fail to create status sysfs file : wb_on_delay_ms\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_off_delay_ms) < 0)
-			pr_err("Fail to create status sysfs file : wb_off_delay_ms\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lp_wb_on_delay_ms) < 0)
-			pr_err("Fail to create status sysfs file : lp_wb_on_delay_ms\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_lp_wb_off_delay_ms) < 0)
-			pr_err("Fail to create status sysfs file : lp_wb_off_delay_ms\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_state) < 0)
-			pr_err("Fail to create status sysfs file : wb_state\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_current_stat) < 0)
-			pr_err("Fail to create status sysfs file : wb_current_stat\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_current_min_max_stat) < 0)
-			pr_err("Fail to create status sysfs file : wb_current_min_max_stat\n");
-		if (device_create_file(sec_ufs_cmd_dev,
-					&dev_attr_wb_total_stat) < 0)
-			pr_err("Fail to create status sysfs file : wb_total_stat\n");
+	if (IS_ERR(sec_ufs_cmd_dev)) {
+			pr_err("Fail to create sysfs dev\n");
+	} else {
+		ret = sysfs_create_group(&sec_ufs_cmd_dev->kobj,
+				&sec_ufs_wb_attribute_group);
+		if (ret)
+			dev_err(hba->dev, "%s: Failed to create sec_ufs_wb sysfs group (err = %d)\n",
+					__func__, ret);
 	}
 }
 #endif

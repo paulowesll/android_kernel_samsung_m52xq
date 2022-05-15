@@ -230,23 +230,6 @@ static uint32_t socinfo_get_accessory_chip(void)
 		: 0;
 }
 
-/* Version 6 */
-static uint32_t socinfo_get_platform_subtype(void)
-{
-	return socinfo ?
-		(socinfo_format >= SOCINFO_VERSION(0, 6) ?
-			le32_to_cpu(socinfo->hw_plat_subtype) : 0)
-		: 0;
-}
-
-/* Version 7 */
-static int socinfo_get_pmic_model(void)
-{
-	return socinfo ?
-		(socinfo_format >= SOCINFO_VERSION(0, 7) ?
-			le32_to_cpu(socinfo->pmic_model) : 0xFFFFFFFF)
-		: 0xFFFFFFFF;
-}
 
 unsigned int __read_mostly is_debug_level_low = 0;
 static int __init sec_debug_level(char *val) __attribute__((unused));
@@ -273,7 +256,23 @@ msm_get_crash(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "Qualcomm Technologies, Inc\n");
 }
 
+/* Version 6 */
+static uint32_t socinfo_get_platform_subtype(void)
+{
+	return socinfo ?
+		(socinfo_format >= SOCINFO_VERSION(0, 6) ?
+			le32_to_cpu(socinfo->hw_plat_subtype) : 0)
+		: 0;
+}
 
+/* Version 7 */
+static int socinfo_get_pmic_model(void)
+{
+	return socinfo ?
+		(socinfo_format >= SOCINFO_VERSION(0, 7) ?
+			le32_to_cpu(socinfo->pmic_model) : 0xFFFFFFFF)
+		: 0xFFFFFFFF;
+}
 
 static uint32_t socinfo_get_pmic_die_revision(void)
 {

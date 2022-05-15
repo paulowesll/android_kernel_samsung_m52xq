@@ -12,7 +12,7 @@
 #include <sound/soc.h>
 #include <linux/i2c.h>
 
-int dbmdx_remote_add_codec_controls(struct snd_soc_component *component);
+int dbmdx_remote_add_component_controls(struct snd_soc_component *component);
 
 typedef void (*event_cb)(int);
 void dbmdx_remote_register_event_callback(event_cb func);

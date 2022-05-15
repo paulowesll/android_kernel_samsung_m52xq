@@ -744,11 +744,12 @@ static void handle_alloc_generic_req(struct qmi_handle *handle,
 		memblock[index].allotted = 1;
 		memblock[index].size = alloc_req->num_bytes;
 		memblock[index].peripheral = alloc_req->proc_id;
-
+#ifdef CONFIG_CP_DYNAMIC_MEM_RESERVE
 		if (index == DHMS_MEM_CLIENT_MODEM_V01) {
 			memshare_rd_set(memsh_drv->memshare_rd_dev, memblock[index].phy_addr,
 							alloc_req->num_bytes, memblock[index].virtual_addr);
 		}
+#endif
 	}
 #endif
 	dev_dbg(memsh_drv->dev,

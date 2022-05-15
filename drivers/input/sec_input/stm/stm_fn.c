@@ -108,92 +108,43 @@ void stm_ts_set_fod_finger_merge(struct stm_ts_data *ts)
 	mutex_lock(&ts->sponge_mutex);
 	input_info(true, &ts->client->dev, "%s: %d\n", __func__, address[1]);
 
-	ret = ts->stm_ts_i2c_write(ts, address, 2, NULL, 0);
+	ret = ts->stm_ts_write(ts, address, 2, NULL, 0);
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "%s: failed\n", __func__);
 	mutex_unlock(&ts->sponge_mutex);
 }
 
-int stm_ts_read_from_sponge(struct stm_ts_data *ts, u8 *data, int length)
-{
-	int ret;
-	u8 address[3];
-
-	mutex_lock(&ts->sponge_mutex);
-	address[0] = STM_TS_CMD_SPONGE_READ_WRITE_CMD;
-	address[1] = data[1];
-	address[2] = data[0];
-	ret = ts->stm_ts_i2c_read(ts, address, 3, data, length);
-	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: fail to read sponge command\n", __func__);
-	mutex_unlock(&ts->sponge_mutex);
-
-	return ret;
-}
-
-int stm_ts_write_to_sponge(struct stm_ts_data *ts, u8 *data, int length)
-{
-	int ret;
-	u8 address[3];
-
-	mutex_lock(&ts->sponge_mutex);
-	address[0] = STM_TS_CMD_SPONGE_READ_WRITE_CMD;
-	address[1] = data[1];
-	address[2] = data[0];
-	ret = ts->stm_ts_i2c_write(ts, address, 3, &data[2], length - 2);
-	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: Failed to write offset\n", __func__);
-
-	address[0] = STM_TS_CMD_SPONGE_NOTIFY_CMD;
-	ret = ts->stm_ts_i2c_write(ts, address, 3, NULL, 0);
-	if (ret < 0)
-		input_err(true, &ts->client->dev, "%s: Failed to send notify\n", __func__);
-	mutex_unlock(&ts->sponge_mutex);
-
-	return ret;
-
-}
-
-int stm_ts_read_chip_id(struct stm_ts_data *ts)
+void stm_ts_read_chip_id(struct stm_ts_data *ts)
 {
 	u8 address = STM_TS_READ_DEVICE_ID;
 	u8 data[5] = {0};
 	int ret;
 
-	ret = ts->stm_ts_i2c_read(ts, &address, 1, &data[0], 5);
+	ret = ts->stm_ts_read(ts, &address, 1, &data[0], 5);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: failed. ret: %d\n", __func__, ret);
-		return ret;
+		return;
 	}
 
-	input_info(true, &ts->client->dev, "%s: %c %c %02X %02X %02X\n",
-			__func__, data[0], data[1], data[2], data[3], data[4]);
+	ts->chip_id = (data[2] << 16) + (data[3] << 8) + data[4];
 
-	if ((data[2] != STM_TS_ID0) && (data[3] != STM_TS_ID1))
-		return -STM_TS_ERROR_INVALID_CHIP_ID;
-
-	return ret;
+	input_info(true, &ts->client->dev, "%s: %c %c %02X %02X %02X (%x)\n",
+			__func__, data[0], data[1], data[2], data[3], data[4], ts->chip_id);
 }
 
-int stm_ts_read_chip_id_hw(struct stm_ts_data *ts)
+void stm_ts_read_chip_id_hw(struct stm_ts_data *ts)
 {
-	u8 address[5] = { 0xFA, 0x20, 0x00, 0x00, 0x00 };
+	u8 address[5] = {STM_TS_CMD_REG_R, 0x20, 0x00, 0x00, 0x00 };
 	u8 data[8] = {0};
 	int ret;
 
-	ret = ts->stm_ts_i2c_read(ts, address, 5, &data[0], 8);
+	ret = ts->stm_ts_read(ts, address, 5, &data[0], 8);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: failed. ret: %d\n", __func__, ret);
-		return ret;
 	}
 
 	input_info(true, &ts->client->dev, "%s: %02X %02X %02X %02X %02X %02X %02X %02X\n",
 			__func__, data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
-
-	if ((data[0] = STM_TS_ID1) && (data[1] == STM_TS_ID0))
-		return STM_TS_NOT_ERROR;
-
-	return -STM_TS_ERROR_INVALID_CHIP_ID;
 }
 
 int stm_ts_get_channel_info(struct stm_ts_data *ts)
@@ -205,7 +156,7 @@ int stm_ts_get_channel_info(struct stm_ts_data *ts)
 	memset(data, 0x0, STM_TS_EVENT_BUFF_SIZE);
 
 	address = STM_TS_READ_PANEL_INFO;
-	rc = ts->stm_ts_i2c_read(ts, &address, 1, data, 11);
+	rc = ts->stm_ts_read(ts, &address, 1, data, 11);
 	if (rc < 0) {
 		ts->tx_count = 0;
 		ts->rx_count = 0;
@@ -241,6 +192,16 @@ int stm_ts_get_channel_info(struct stm_ts_data *ts)
 		input_err(true, &ts->client->dev, "%s: set resolution based on ic value, check it!\n", __func__);
 	}
 
+	if (data[0] == 0x00 && data[1] == 0x00 && data[2] == 0x00 && data[3] == 0x00 && data[8] == 0x00 && data[9] == 0x00) {
+		input_err(true, &ts->client->dev, "%s: channel number and resoltion value is zero. return ENODEV\n", __func__);
+		return -ENODEV;
+	}
+
+	if (data[0] == 0xFF && data[1] == 0xFF && data[2] == 0xFF && data[3] == 0xFF && data[8] == 0xFF && data[9] == 0xFF) {
+		input_err(true, &ts->client->dev, "%s: channel number and resoltion value is FF. return ENODEV\n", __func__);
+		return -ENODEV;
+	}
+
 	return rc;
 }
 
@@ -269,7 +230,7 @@ int stm_ts_get_sysinfo_data(struct stm_ts_data *ts, u8 sysinfo_addr, u8 read_cnt
 		goto ERROR;
 	}
 
-	ret = ts->stm_ts_i2c_read(ts, &address[0], 3, &buff[0], read_cnt);
+	ret = ts->stm_ts_read(ts, &address[0], 3, &buff[0], read_cnt);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: failed. ret: %d\n",
 				__func__, ret);
@@ -293,7 +254,7 @@ int stm_ts_get_version_info(struct stm_ts_data *ts)
 
 	memset(data, 0x0, STM_TS_VERSION_SIZE);
 
-	rc = ts->stm_ts_i2c_read(ts, &address, 1, (u8 *)data, STM_TS_VERSION_SIZE);
+	rc = ts->stm_ts_read(ts, &address, 1, (u8 *)data, STM_TS_VERSION_SIZE);
 
 	ts->fw_version_of_ic = (data[0] << 8) + data[1];
 	ts->config_version_of_ic = (data[2] << 8) + data[3];
@@ -323,9 +284,9 @@ void stm_ts_command(struct stm_ts_data *ts, u8 cmd, bool checkecho)
 
 
 	if (checkecho)
-		ret = stm_ts_wait_for_echo_event(ts, &cmd, 1, 0);
+		ret = stm_ts_wait_for_echo_event(ts, &cmd, 1, 100);
 	else
-		ret = ts->stm_ts_i2c_write(ts, &cmd, 1, 0, 0);
+		ret = ts->stm_ts_write(ts, &cmd, 1, 0, 0);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
 				"%s: failed to write command(0x%02X), ret = %d\n", __func__, cmd, ret);
@@ -334,7 +295,7 @@ void stm_ts_command(struct stm_ts_data *ts, u8 cmd, bool checkecho)
 
 int stm_ts_systemreset(struct stm_ts_data *ts, unsigned int msec)
 {
-	u8 address = 0xFA;
+	u8 address = STM_TS_CMD_REG_W;
 	u8 data[5] = { 0x20, 0x00, 0x00, 0x24, 0x81 };
 	int rc;
 
@@ -342,7 +303,7 @@ int stm_ts_systemreset(struct stm_ts_data *ts, unsigned int msec)
 
 	disable_irq(ts->irq);
 
-	ts->stm_ts_i2c_write(ts, &address, 1, &data[0], 5);
+	ts->stm_ts_write(ts, &address, 1, &data[0], 5);
 
 	sec_delay(msec + 10);
 
@@ -355,25 +316,39 @@ int stm_ts_systemreset(struct stm_ts_data *ts, unsigned int msec)
 	return rc;
 }
 
-int stm_ts_fix_active_mode(struct stm_ts_data *ts, bool enable)
+int stm_ts_fix_active_mode(struct stm_ts_data *ts, int mode)
 {
 	u8 address[3] = {0xA0, 0x00, 0x00};
 	int ret;
 
-	if (enable) {
+	if (mode == STM_TS_ACTIVE_TRUE) {
 		address[1] = 0x03;
 		address[2] = 0x00;
-	} else {
+	} else if (mode == STM_TS_ACTIVE_FALSE) {
 		address[1] = 0x00;
 		address[2] = 0x01;
+
+		ts->stm_ts_command(ts, STM_TS_CMD_SENSE_OFF, false);
+		sec_delay(10);
+	} else if (mode == STM_TS_ACTIVE_FALSE_SNR) {
+		address[1] = 0x00;
+		address[2] = 0x01;
+	} else {
+		input_info(true, &ts->client->dev, "%s: err data mode: %d\n", __func__, mode);
 	}
 	
-	ret = ts->stm_ts_i2c_write(ts, &address[0], 3, NULL, 0);
-	if (ret < 0)
+	ret = ts->stm_ts_write(ts, &address[0], 3, NULL, 0);
+	if (ret < 0) {
 		input_info(true, &ts->client->dev, "%s: err: %d\n", __func__, ret);
-	else
-		input_info(true, &ts->client->dev, "%s: %s\n", __func__,
-				enable ? "fix" : "release");
+	} else {
+		if (mode == STM_TS_ACTIVE_TRUE) {
+			input_info(true, &ts->client->dev, "%s: STM_TS_ACTIVE_TRUE% d\n", __func__, mode);
+		} else if (mode == STM_TS_ACTIVE_FALSE) {
+			input_info(true, &ts->client->dev, "%s: STM_TS_ACTIVE_FALSE% d\n", __func__, mode);
+		} else if (mode == STM_TS_ACTIVE_FALSE_SNR) {
+			input_info(true, &ts->client->dev, "%s: STM_TS_ACTIVE_FALSE_SNR% d\n", __func__, mode);
+		}
+	}
 
 	sec_delay(10);
 
@@ -386,7 +361,7 @@ void stm_ts_change_scan_rate(struct stm_ts_data *ts, u8 rate)
 	u8 data = rate;
 	int ret = 0;
 
-	ret = ts->stm_ts_i2c_write(ts, &address, 1, &data, 1);
+	ret = ts->stm_ts_write(ts, &address, 1, &data, 1);
 
 	input_dbg(true, &ts->client->dev, "%s: scan rate (%d Hz), ret = %d\n", __func__, address, ret);
 }
@@ -404,12 +379,12 @@ int stm_ts_fw_corruption_check(struct stm_ts_data *ts)
 	}
 	
 	/* Firmware Corruption Check */
-	address[0] = 0xFA;
+	address[0] = STM_TS_CMD_REG_R;
 	address[1] = 0x20;
 	address[2] = 0x00;
 	address[3] = 0x00;
 	address[4] = 0x78;
-	ret = ts->stm_ts_i2c_read(ts, address, 5, &val, 1);
+	ret = ts->stm_ts_read(ts, address, 5, &val, 1);
 	if (ret < 0) {
 		ret = -STM_TS_I2C_ERROR;
 		goto out;
@@ -440,7 +415,7 @@ int stm_ts_wait_for_ready(struct stm_ts_data *ts)
 	memset(data, 0x0, STM_TS_EVENT_BUFF_SIZE);
 
 	rc = -1;
-	while (ts->stm_ts_i2c_read(ts, &address, 1, (u8 *)data, STM_TS_EVENT_BUFF_SIZE) > 0) {
+	while (ts->stm_ts_read(ts, &address, 1, (u8 *)data, STM_TS_EVENT_BUFF_SIZE) >= 0) {
 		p_event_status = (struct stm_ts_event_status *) &data[0];
 
 		if ((p_event_status->stype == STM_TS_EVENT_STATUSTYPE_INFO) &&
@@ -468,10 +443,6 @@ int stm_ts_wait_for_ready(struct stm_ts_data *ts)
 				input_err(true, &ts->client->dev, "%s: flash corruption\n", __func__);
 				break;
 			}
-
-			/*
-			 * F3 24 / 25 / 29 / 2A / 2D / 34: the flash about OSC TRIM value is broken.
-			 */
 			if (data[1] == 0x24 || data[1] ==  0x25 || data[1] ==  0x29 || data[1] ==  0x2A || data[1] == 0x2D || data[1] == 0x34) {
 				input_err(true, &ts->client->dev, "%s: osc trim is broken\n", __func__);
 				rc = -STM_TS_ERROR_BROKEN_OSC_TRIM;
@@ -486,7 +457,7 @@ int stm_ts_wait_for_ready(struct stm_ts_data *ts)
 			continue;
 		}
 
-		if (retry++ > STM_TS_RETRY_COUNT) {
+		if (retry++ > STM_TS_RETRY_COUNT * 15) {
 			rc = -STM_TS_ERROR_TIMEOUT;
 			if (data[0] == 0 && data[1] == 0 && data[2] == 0)
 				rc = -STM_TS_ERROR_TIMEOUT_ZERO;
@@ -523,7 +494,7 @@ int stm_ts_wait_for_echo_event(struct stm_ts_data *ts, u8 *cmd, u8 cmd_cnt, int 
 	mutex_lock(&ts->fn_mutex);
 	disable_irq(ts->irq);
 
-	rc = ts->stm_ts_i2c_write(ts, cmd, cmd_cnt, NULL, 0);
+	rc = ts->stm_ts_write(ts, cmd, cmd_cnt, NULL, 0);
 	if (rc < 0) {
 		input_err(true, &ts->client->dev, "%s: failed to write command\n", __func__);
 		enable_irq(ts->irq);
@@ -538,7 +509,7 @@ int stm_ts_wait_for_echo_event(struct stm_ts_data *ts, u8 *cmd, u8 cmd_cnt, int 
 
 	rc = -EIO;
 
-	while (ts->stm_ts_i2c_read(ts, &reg, 1, (u8 *)data, STM_TS_EVENT_BUFF_SIZE) > 0) {
+	while (ts->stm_ts_read(ts, &reg, 1, (u8 *)data, STM_TS_EVENT_BUFF_SIZE) >= 0) {
 		if (data[0] != 0x00)
 			input_info(true, &ts->client->dev,
 					"%s: event %02X, %02X, %02X, %02X, %02X, %02X, %02X, %02X,"
@@ -595,7 +566,7 @@ int stm_ts_set_scanmode(struct stm_ts_data *ts, u8 scan_mode)
 	u8 address[3] = { 0xA0, 0x00, scan_mode };
 	int rc;
 
-	rc = stm_ts_wait_for_echo_event(ts, &address[0], 3, 0);
+	rc = stm_ts_wait_for_echo_event(ts, &address[0], 3, 20);
 	if (rc < 0) {
 		input_info(true, &ts->client->dev, "%s: timeout, ret = %d\n", __func__, rc);
 		return rc;
@@ -607,6 +578,24 @@ int stm_ts_set_scanmode(struct stm_ts_data *ts, u8 scan_mode)
 
 }
 
+/* optional reg : SEC_TS_CMD_LPM_AOD_OFF_ON(0x9B)	*/
+/* 0 : Async base scan (default on lp mode)		*/
+/* 1 : sync base scan				*/
+int stm_ts_set_hsync_scanmode(struct stm_ts_data *ts, u8 scan_mode)
+{
+	u8 address[2] = { STM_TS_CMD_SET_LPM_AOD_OFF_ON, 0};
+	int rc;
+
+	input_info(true, &ts->client->dev, "%s: mode:%x\n", __func__, scan_mode);
+	address[1] = scan_mode;
+
+	rc = ts->stm_ts_write(ts, &address[0], 2, NULL, 0);
+	if (rc < 0)
+		input_err(true, &ts->client->dev, "%s: Failed to send command: %x/%x",
+					__func__, address[0], address[1]);
+	return rc;
+}
+
 int stm_ts_set_touch_function(struct stm_ts_data *ts)
 {
 	int ret = 0;
@@ -616,7 +605,7 @@ int stm_ts_set_touch_function(struct stm_ts_data *ts)
 	address = STM_TS_CMD_SET_GET_TOUCHTYPE;
 	data[0] = (u8)(ts->plat_data->touch_functions & 0xFF);
 	data[1] = (u8)(ts->plat_data->touch_functions >> 8);
-	ret = ts->stm_ts_i2c_write(ts, &address, 1, data, 2);
+	ret = ts->stm_ts_write(ts, &address, 1, data, 2);
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "%s: Failed to send command(0x%x)",
 				__func__, STM_TS_CMD_SET_GET_TOUCHTYPE);
@@ -638,7 +627,7 @@ void stm_ts_get_touch_function(struct work_struct *work)
 	address = STM_TS_CMD_SET_GET_TOUCHTYPE;
 	data[0] = (u8)(ts->plat_data->touch_functions & 0xFF);
 	data[1] = (u8)(ts->plat_data->touch_functions >> 8);
-	ret = ts->stm_ts_i2c_read(ts, &address, 1, (u8 *)&(ts->plat_data->ic_status), 2);
+	ret = ts->stm_ts_read(ts, &address, 1, (u8 *)&(ts->plat_data->ic_status), 2);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: failed to read touch functions(%d)\n",
@@ -694,7 +683,7 @@ int stm_ts_set_opmode(struct stm_ts_data *ts, u8 mode)
 	int ret;
 	u8 address[2] = {STM_TS_CMD_SET_GET_OPMODE, mode};
 
-	ret = ts->stm_ts_i2c_write(ts, &address[0], 2, NULL, 0);
+	ret = ts->stm_ts_write(ts, &address[0], 2, NULL, 0);
 	if (ret < 0)
 		input_err(true, &ts->client->dev, "%s: Failed to write opmode", __func__);
 
@@ -703,10 +692,12 @@ int stm_ts_set_opmode(struct stm_ts_data *ts, u8 mode)
 	if (ts->plat_data->lowpower_mode) {
 		address[0] = STM_TS_CMD_WRITE_WAKEUP_GESTURE;
 		address[1] = 0x02;
-		ret = ts->stm_ts_i2c_write(ts, &address[0], 1, &address[1], 1);
+		ret = ts->stm_ts_write(ts, &address[0], 1, &address[1], 1);
 		if (ret < 0)
 			input_err(true, &ts->client->dev, "%s: Failed to send lowpower flag command", __func__);
 	}
+
+	input_info(true, &ts->client->dev, "%s: opmode %d", __func__, mode);
 
 	return ret;
 }
@@ -757,38 +748,43 @@ int stm_ts_set_lowpowermode(void *data, u8 mode)
 #endif
 		ret = stm_ts_set_custom_library(ts);
 		if (ret < 0)
-			goto i2c_error;
+			goto error;
 	} else {
 		if (!ts->plat_data->shutdown_called)
-			schedule_work(&ts->work_read_functions.work);
+			stm_ts_get_touch_function(&ts->work_read_functions.work);
 	}
 
 retry_pmode:
-	if (mode)
-		stm_ts_set_opmode(ts, STM_TS_OPMODE_LOWPOWER);
-	else
-		stm_ts_set_opmode(ts, STM_TS_OPMODE_NORMAL);
+	if (mode) {
+		stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, false);
+		ret = stm_ts_set_opmode(ts, STM_TS_OPMODE_LOWPOWER);
+	} else {
+		ret = stm_ts_set_opmode(ts, STM_TS_OPMODE_NORMAL);
+	}
+	if (ret < 0) {
+		input_err(true, &ts->client->dev, "%s: stm_ts_set_opmode failed!\n", __func__);
+		goto error;
+	}
 
-	sec_delay(50);
+	sec_delay(5);
 
 	address = STM_TS_CMD_SET_GET_OPMODE;
-	ret = ts->stm_ts_i2c_read(ts, &address, 1, &para, 1);
+	ret = ts->stm_ts_read(ts, &address, 1, &para, 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: read power mode failed!\n", __func__);
-		goto i2c_error;
-	} else {
-		input_info(true, &ts->client->dev, "%s: power mode - write(%d) read(%d)\n", __func__, mode, para);
+		retrycnt++;
+		if (retrycnt < 10)
+			goto retry_pmode;
 	}
+
+	input_info(true, &ts->client->dev, "%s: write(%d) read(%d) retry %d\n", __func__, mode, para, retrycnt);
 
 	if (mode != para) {
 		retrycnt++;
 		ts->plat_data->hw_param.mode_change_failed_count++;
-		if (retrycnt < 5)
+		if (retrycnt < 10)
 			goto retry_pmode;
 	}
-
-	if (mode)
-		stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, false);
 
 	stm_ts_locked_release_all_finger(ts);
 
@@ -804,7 +800,7 @@ retry_pmode:
 	else
 		ts->plat_data->power_state = SEC_INPUT_STATE_POWER_ON;
 
-i2c_error:
+error:
 	input_info(true, &ts->client->dev, "%s: end %d\n", __func__, ret);
 
 	return ret;
@@ -836,7 +832,7 @@ void stm_ts_reset(struct stm_ts_data *ts, unsigned int ms)
 	if (ts->plat_data->power)
 		ts->plat_data->power(&ts->client->dev, true);
 
-	sec_delay(5);
+	sec_delay(TOUCH_POWER_ON_DWORK_TIME);
 }
 
 void stm_ts_reset_work(struct work_struct *work)
@@ -919,7 +915,7 @@ void stm_ts_reset_work(struct work_struct *work)
 
 	if (ts->plat_data->power_state == SEC_INPUT_STATE_POWER_ON)
 		if (ts->fix_active_mode)
-			stm_ts_fix_active_mode(ts, 1);
+			stm_ts_fix_active_mode(ts, STM_TS_ACTIVE_TRUE);
 
 	snprintf(result, sizeof(result), "RESULT=RESET");
 	if (ts->probe_done)
@@ -971,6 +967,11 @@ void stm_ts_read_info_work(struct work_struct *work)
 		get_cmoffset_dump(ts, ts->cmoffset_main_proc, OFFSET_FW_MAIN);
 	}
 
+	ts->info_work_done = true;
+
+	/* reinit */
+	ts->plat_data->init(ts);
+
 	if (ts->plat_data->shutdown_called) {
 		input_err(true, &ts->client->dev, "%s done, do not run work\n", __func__);
 		return;
@@ -978,6 +979,20 @@ void stm_ts_read_info_work(struct work_struct *work)
 		schedule_work(&ts->work_print_info.work);
 	}
 }
+
+#if IS_ENABLED(CONFIG_INPUT_SEC_NOTIFIER)
+void stm_ts_interrupt_notify(struct work_struct *work)
+{
+	struct sec_ts_plat_data *pdata = container_of(work, struct sec_ts_plat_data,
+			interrupt_notify_work.work);
+	struct sec_input_notify_data data;
+	data.dual_policy = MAIN_TOUCHSCREEN;
+	if (pdata->touch_count > 0)
+		sec_input_notify(NULL, NOTIFIER_LCD_VRR_LFD_LOCK_REQUEST, &data);
+	else
+		sec_input_notify(NULL, NOTIFIER_LCD_VRR_LFD_LOCK_RELEASE, &data);
+}
+#endif
 
 void stm_ts_set_cover_type(struct stm_ts_data *ts, bool enable)
 {
@@ -993,7 +1008,7 @@ void stm_ts_set_cover_type(struct stm_ts_data *ts, bool enable)
 	if (enable) {
 		address = STM_TS_CMD_SET_GET_COVERTYPE;
 		data[0] = cover_cmd;
-		ret = ts->stm_ts_i2c_write(ts, &address, 1, data, 1);
+		ret = ts->stm_ts_write(ts, &address, 1, data, 1);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: Failed to send covertype command: %d",
 					__func__, cover_cmd);
@@ -1021,7 +1036,7 @@ int stm_ts_set_temperature(struct device *dev, u8 temperature_data)
 
 	address = STM_TS_CMD_SET_LOWTEMPERATURE_MODE;
 
-	return ts->stm_ts_i2c_write(ts, &address, 1,  &temperature_data, 1);
+	return ts->stm_ts_write(ts, &address, 1,  &temperature_data, 1);
 }
 int stm_ts_set_aod_rect(struct stm_ts_data *ts)
 {
@@ -1080,7 +1095,7 @@ int stm_ts_set_fod_rect(struct stm_ts_data *ts)
 	return ret;
 }
 
-int stm_ts_set_charger_mode(struct stm_ts_data *ts)
+int stm_ts_set_wirelesscharger_mode(struct stm_ts_data *ts)
 {
 	int ret;
 	u8 address;
@@ -1098,8 +1113,8 @@ int stm_ts_set_charger_mode(struct stm_ts_data *ts)
 		return SEC_ERROR;
 	}
 
-	address = STM_TS_CMD_SET_GET_CHARGER_MODE;
-	ret = ts->stm_ts_i2c_write(ts, &address, 1, &data, 1);
+	address = STM_TS_CMD_SET_GET_WIRELESSCHARGER_MODE;
+	ret = ts->stm_ts_write(ts, &address, 1, &data, 1);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
 				"%s: Failed to write mode 0x%02X (cmd:%d), ret=%d\n",
@@ -1111,6 +1126,62 @@ int stm_ts_set_charger_mode(struct stm_ts_data *ts)
 
 	return ret;
 }
+
+int stm_ts_set_wirecharger_mode(struct stm_ts_data *ts)
+{
+	int ret;
+	u8 address;
+	u8 data;
+
+	if (ts->charger_mode == TYPE_WIRE_CHARGER_NONE) {
+		data = STM_TS_BIT_CHARGER_MODE_NORMAL;
+	} else if (ts->charger_mode == TYPE_WIRE_CHARGER) {
+		data = STM_TS_BIT_CHARGER_MODE_WIRE_CHARGER;
+	} else {
+		input_err(true, &ts->client->dev, "%s: not supported mode %d\n",
+				__func__, ts->plat_data->wirelesscharger_mode);
+		return SEC_ERROR;
+	}
+
+	address = STM_TS_CMD_SET_GET_WIRECHARGER_MODE;
+	ret = ts->stm_ts_write(ts, &address, 1, &data, 1);
+	if (ret < 0)
+		input_err(true, &ts->client->dev,
+				"%s: Failed to write mode 0x%02X (cmd:%d), ret=%d\n",
+				__func__, address, ts->charger_mode, ret);
+
+	return ret;
+}
+
+#if IS_ENABLED(CONFIG_VBUS_NOTIFIER)
+int stm_ts_vbus_notification(struct notifier_block *nb, unsigned long cmd, void *data)
+{
+	struct stm_ts_data *ts = container_of(nb, struct stm_ts_data, vbus_nb);
+	vbus_status_t vbus_type = *(vbus_status_t *)data;
+
+	if (ts->plat_data->shutdown_called)
+		return 0;
+
+	switch (vbus_type) {
+	case STATUS_VBUS_HIGH:
+		ts->charger_mode = TYPE_WIRE_CHARGER;
+		break;
+	case STATUS_VBUS_LOW:
+		ts->charger_mode = TYPE_WIRE_CHARGER_NONE;
+		break;
+	default:
+		goto out;
+	}
+
+	input_info(true, &ts->client->dev, "%s: %sabled\n", __func__,
+				ts->charger_mode == TYPE_WIRE_CHARGER_NONE ? "dis" : "en");
+
+	stm_ts_set_wirecharger_mode(ts);
+
+out:
+	return 0;
+}
+#endif
 
 /*
  *	flag     1  :  set edge handler
@@ -1155,7 +1226,7 @@ void stm_set_grip_data_to_ic(struct device *dev, u8 flag)
 			data[3] = ts->plat_data->grip_data.edgehandler_direction & 0x3;
 		}
 		address[1] = STM_TS_FUNCTION_EDGE_HANDLER;
-		ts->stm_ts_i2c_write(ts, address, 2, data, 4);
+		ts->stm_ts_write(ts, address, 2, data, 4);
 		input_info(true, &ts->client->dev, "%s: 0x%02X %02X,%02X,%02X,%02X\n",
 				__func__, STM_TS_FUNCTION_EDGE_HANDLER, data[0], data[1], data[2], data[3]);
 	}
@@ -1166,7 +1237,7 @@ void stm_set_grip_data_to_ic(struct device *dev, u8 flag)
 		data[2] = (ts->plat_data->grip_data.edge_range >> 8) & 0xFF;
 		data[3] = ts->plat_data->grip_data.edge_range  & 0xFF;
 		address[1] = STM_TS_FUNCTION_EDGE_AREA;
-		ts->stm_ts_i2c_write(ts, address, 2, data, 4);
+		ts->stm_ts_write(ts, address, 2, data, 4);
 		input_info(true, &ts->client->dev, "%s: 0x%02X %02X,%02X,%02X,%02X\n",
 				__func__, STM_TS_FUNCTION_EDGE_AREA, data[0], data[1], data[2], data[3]);
 	}
@@ -1177,7 +1248,7 @@ void stm_set_grip_data_to_ic(struct device *dev, u8 flag)
 		data[2] = (ts->plat_data->grip_data.deadzone_y >> 8) & 0xFF;
 		data[3] = ts->plat_data->grip_data.deadzone_y & 0xFF;
 		address[1] = STM_TS_FUNCTION_DEAD_ZONE;
-		ts->stm_ts_i2c_write(ts, address, 2, data, 4);
+		ts->stm_ts_write(ts, address, 2, data, 4);
 		input_info(true, &ts->client->dev, "%s: 0x%02X %02X,%02X,%02X,%02X\n",
 				__func__, STM_TS_FUNCTION_DEAD_ZONE, data[0], data[1], data[2], data[3]);
 	}
@@ -1192,7 +1263,7 @@ void stm_set_grip_data_to_ic(struct device *dev, u8 flag)
 		data[6] = ts->plat_data->grip_data.landscape_deadzone & 0xFF;
 
 		address[1] = STM_TS_FUNCTION_LANDSCAPE_MODE;
-		ts->stm_ts_i2c_write(ts, address, 2, data, 7);
+		ts->stm_ts_write(ts, address, 2, data, 7);
 		input_info(true, &ts->client->dev, "%s: 0x%02X %02X,%02X,%02X,%02X, %02X,%02X,%02X\n",
 				__func__, STM_TS_FUNCTION_LANDSCAPE_MODE, data[0], data[1], data[2], data[3], data[4], data[5], data[6]);
 
@@ -1209,7 +1280,7 @@ void stm_set_grip_data_to_ic(struct device *dev, u8 flag)
 		data[8] = ts->plat_data->grip_data.landscape_bottom_deadzone & 0xFF;
 	
 		address[1] = STM_TS_FUNCTION_LANDSCAPE_TOP_BOTTOM;
-		ts->stm_ts_i2c_write(ts, address, 2, data, 9);
+		ts->stm_ts_write(ts, address, 2, data, 9);
 		input_info(true, &ts->client->dev, "%s: 0x%02X %02X,%02X,%02X,%02X, %02X,%02X,%02X,%02X,%02X\n",
 				__func__, STM_TS_FUNCTION_LANDSCAPE_TOP_BOTTOM, data[0], data[1], data[2], data[3],
 				data[4], data[5], data[6], data[7], data[8]);
@@ -1219,12 +1290,12 @@ void stm_set_grip_data_to_ic(struct device *dev, u8 flag)
 		memset(data, 0x00, 9);
 		data[0] = ts->plat_data->grip_data.landscape_mode;
 		address[1] = STM_TS_FUNCTION_LANDSCAPE_MODE;
-		ts->stm_ts_i2c_write(ts, address, 2, data, 7);
+		ts->stm_ts_write(ts, address, 2, data, 7);
 		input_info(true, &ts->client->dev, "%s: 0x%02X %02X\n",
 				__func__, STM_TS_FUNCTION_LANDSCAPE_MODE, data[0]);
 
 		address[1] = STM_TS_FUNCTION_LANDSCAPE_TOP_BOTTOM;
-		ts->stm_ts_i2c_write(ts, address, 2, data, 9);
+		ts->stm_ts_write(ts, address, 2, data, 9);
 		input_info(true, &ts->client->dev, "%s: 0x%02X %02X\n",
 				__func__, STM_TS_FUNCTION_LANDSCAPE_TOP_BOTTOM, data[0]);
 	}
@@ -1279,7 +1350,7 @@ int stm_ts_set_external_noise_mode(struct stm_ts_data *ts, u8 mode)
 			mode_enable = !!(ts->plat_data->external_noise_mode & check_bit);
 			data[0] = noise_mode_cmd[i];
 			data[1] = mode_enable;
-			ret = ts->stm_ts_i2c_write(ts, &address, 1, data, 2);
+			ret = ts->stm_ts_write(ts, &address, 1, data, 2);
 			if (ret < 0) {
 				input_err(true, &ts->client->dev, "%s: failed to set 0x%02X %d\n",
 						__func__, noise_mode_cmd[i], mode_enable);
@@ -1302,7 +1373,7 @@ int stm_ts_set_touchable_area(struct stm_ts_data *ts)
 			"%s: set 16:9 mode %s\n", __func__,
 			ts->plat_data->touchable_area ? "enable" : "disable");
 
-	ret = ts->stm_ts_i2c_write(ts, address, 2, &ts->plat_data->touchable_area, 1);
+	ret = ts->stm_ts_write(ts, address, 2, &ts->plat_data->touchable_area, 1);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
 				"%s: failed to set 16:9 mode, ret=%d\n", __func__, ret);
@@ -1318,7 +1389,7 @@ int stm_ts_ear_detect_enable(struct stm_ts_data *ts, u8 enable)
 	input_info(true, &ts->client->dev, "%s: enable:%d\n", __func__, enable);
 
 	/* 00: off, 01:Mutual, 10:Self, 11: Mutual+Self */
-	ret = ts->stm_ts_i2c_write(ts, &address, 1, &data, 1);
+	ret = ts->stm_ts_write(ts, &address, 1, &data, 1);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
 				"%s: failed to set ed_enable %d, ret=%d\n", __func__, data, ret);
@@ -1334,7 +1405,7 @@ int stm_ts_pocket_mode_enable(struct stm_ts_data *ts, u8 enable)
 	input_info(true, &ts->client->dev, "%s: %s\n",
 			__func__, ts->plat_data->pocket_mode ? "enable" : "disable");
 
-	ret = ts->stm_ts_i2c_write(ts, &address, 1, &data, 1);
+	ret = ts->stm_ts_write(ts, &address, 1, &data, 1);
 	if (ret < 0)
 		input_err(true, &ts->client->dev,
 				"%s: failed to pocket mode%d, ret=%d\n", __func__, data, ret);
@@ -1378,6 +1449,7 @@ int get_nvm_data_by_size(struct stm_ts_data *ts, u8 offset, int length, u8 *nvda
 	u8 data[128] = { 0 };
 	int ret;
 
+	sec_delay(200);
 	ts->stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, true); // Clear FIFO
 
 	stm_ts_release_all_finger(ts);
@@ -1387,7 +1459,7 @@ int get_nvm_data_by_size(struct stm_ts_data *ts, u8 offset, int length, u8 *nvda
 	address[1] = 0x06;
 	address[2] = 0x90;
 
-	ret = stm_ts_wait_for_echo_event(ts, &address[0], 3, 0);
+	ret = stm_ts_wait_for_echo_event(ts, &address[0], 3, 50);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: timeout. ret: %d\n", __func__, ret);
@@ -1395,11 +1467,11 @@ int get_nvm_data_by_size(struct stm_ts_data *ts, u8 offset, int length, u8 *nvda
 	}
 
 
-	address[0] = 0xA6;
+	address[0] = STM_TS_CMD_FRM_BUFF_R;
 	address[1] = 0x00;
 	address[2] = offset;
 
-	ret = ts->stm_ts_i2c_read(ts, &address[0], 3, data, length + 1);
+	ret = ts->stm_ts_read(ts, &address[0], 3, data, length + 1);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: read failed. ret: %d\n", __func__, ret);
@@ -1420,6 +1492,7 @@ int set_nvm_data_by_size(struct stm_ts_data *ts, u8 offset, int length, u8 *buf)
 	u8 remaining, index, sendinglength;
 	int ret;
 
+	sec_delay(200);
 	ts->stm_ts_command(ts, STM_TS_CMD_CLEAR_ALL_EVENT, true); // Clear FIFO
 
 	stm_ts_release_all_finger(ts);
@@ -1443,7 +1516,7 @@ int set_nvm_data_by_size(struct stm_ts_data *ts, u8 offset, int length, u8 *buf)
 			sendinglength = 12;
 		}
 
-		ret = ts->stm_ts_i2c_write(ts, &buff[0], sendinglength + 3, NULL, 0);
+		ret = ts->stm_ts_write(ts, &buff[0], sendinglength + 3, NULL, 0);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev,
 					"%s: write failed. ret: %d\n", __func__, ret);
@@ -1465,9 +1538,8 @@ int set_nvm_data_by_size(struct stm_ts_data *ts, u8 offset, int length, u8 *buf)
 
 }
 
-int stm_tclm_data_read(struct i2c_client *client, int address)
+int _stm_tclm_data_read(struct stm_ts_data *ts, int address)
 {
-	struct stm_ts_data *ts = i2c_get_clientdata(client);
 	int ret = 0;
 	int i = 0;
 	u8 nbuff[STM_TS_NVM_OFFSET_ALL];
@@ -1517,9 +1589,8 @@ int stm_tclm_data_read(struct i2c_client *client, int address)
 
 }
 
-int stm_tclm_data_write(struct i2c_client *client, int address)
+int _stm_tclm_data_write(struct stm_ts_data *ts, int address)
 {
-	struct stm_ts_data *ts = i2c_get_clientdata(client);
 	int ret = 1;
 	int i = 0;
 	u8 nbuff[STM_TS_NVM_OFFSET_ALL];

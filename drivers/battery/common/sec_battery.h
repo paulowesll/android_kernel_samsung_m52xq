@@ -113,6 +113,7 @@ extern char *sec_cable_type[];
 #define BATT_MISC_EVENT_BATTERY_HEALTH			0x000F0000
 #define BATT_MISC_EVENT_HEALTH_OVERHEATLIMIT		0x00100000
 #define BATT_MISC_EVENT_ABNORMAL_PAD		0x00200000
+#define BATT_MISC_EVENT_WIRELESS_MISALIGN		0x00400000
 #define BATT_MISC_EVENT_FULL_CAPACITY		0x01000000
 
 #define BATTERY_HEALTH_SHIFT	16
@@ -181,10 +182,11 @@ enum misc_battery_health {
 	GENERATE(VOTER_TOPOFF_CHANGE)	\
 	GENERATE(VOTER_HMT)	\
 	GENERATE(VOTER_DC_ERR)	\
-	GENERATE(VOTER_HV_DISABLE)	\
 	GENERATE(VOTER_DC_MODE)	\
 	GENERATE(VOTER_FULL_CAPACITY)	\
 	GENERATE(VOTER_WDT_EXPIRE)	\
+	GENERATE(VOTER_BATTERY)	\
+	GENERATE(VOTER_CHANGE_CHGMODE)	\
 	GENERATE(VOTER_MAX)
 
 #define GENERATE_ENUM(ENUM) ENUM,
@@ -241,8 +243,7 @@ struct sec_bat_pdic_info {
 };
 
 struct sec_bat_pdic_list {
-	struct sec_bat_pdic_info pd_info[MAX_PDO_NUM]; /* 5V ~ 12V */
-	unsigned int now_pd_index;
+	struct sec_bat_pdic_info pd_info[MAX_PDO_NUM + 1]; /* 5V ~ 12V */
 	unsigned int max_pd_count;
 	bool now_isApdo;
 	unsigned int num_fpdo;
@@ -634,6 +635,7 @@ typedef struct sec_battery_platform_data {
 	char *sub_limiter_name;
 	bool support_dual_battery;
 	int main_bat_enb_gpio;
+	int main_bat_enb2_gpio;
 	int sub_bat_enb_gpio;
 #endif
 
@@ -812,6 +814,8 @@ struct sec_battery_info {
 
 	bool hv_pdo;
 	bool update_pd_list;
+	unsigned int now_pd_index;
+	unsigned int target_pd_index;
 
 	bool is_sysovlo;
 	bool is_vbatovlo;
@@ -844,6 +848,8 @@ struct sec_battery_info {
 	int voltage_pack_sub;		/* pack voltage sub battery (mV) */
 	int current_now_main;		/* current from main battery (mA) */
 	int current_now_sub;		/* current from sub battery (mA) */
+
+	unsigned int limiter_check;
 #if defined(CONFIG_DUAL_BATTERY_CELL_SENSING)
 	int voltage_cell_main;		/* cell voltage main battery (mV) */
 	int voltage_cell_sub;		/* cell voltage sub battery (mV) */
@@ -988,8 +994,8 @@ struct sec_battery_info {
 	struct delayed_work cable_work;
 	struct wakeup_source *vbus_ws;
 	struct delayed_work siop_work;
-	struct wakeup_source *afc_ws;
-	struct delayed_work afc_work;
+	struct wakeup_source *input_ws;
+	struct delayed_work input_check_work;
 #if defined(CONFIG_WIRELESS_FIRMWARE_UPDATE)
 	struct delayed_work update_work;
 	struct delayed_work fw_init_work;
@@ -1014,6 +1020,8 @@ struct sec_battery_info {
 	char batt_type[48];
 	unsigned int full_check_cnt;
 	unsigned int recharge_check_cnt;
+
+	unsigned int input_check_cnt;
 
 	struct mutex iolock;
 	int input_current;
@@ -1103,8 +1111,6 @@ struct sec_battery_info {
 	struct delayed_work wc20_current_work;
 #endif
 	struct delayed_work slowcharging_work;
-	int slow_charging;
-	struct delayed_work slow_chg_work;
 #if defined(CONFIG_BATTERY_AGE_FORECAST)
 	int batt_cycle;
 #endif
@@ -1173,14 +1179,13 @@ struct sec_battery_info {
 
 	int charging_night_mode;
 	int batt_full_capacity;
-	
+
 	/* Sub_THM LRPST */
 	unsigned long lr_start_time;
 	unsigned long lr_time_span;
 	int lrp_sub;
 	int lr_sub_bat_t_1;
-
-	int curr_iv;
+	bool usb_slow_chg;
 };
 
 /* event check */

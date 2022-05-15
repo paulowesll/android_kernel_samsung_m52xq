@@ -76,6 +76,23 @@ extern struct device *ptsp;
 
 #define SYNAPTICS_TS_I2C_RETRY_CNT	5
 
+enum {
+	LCD_EARLY_EVENT = 0,
+	LCD_LATE_EVENT
+};
+
+enum {
+	SERVICE_SHUTDOWN = -1,
+	LCD_NONE = 0,
+	LCD_OFF,
+	LCD_ON,
+	LCD_DOZE1,
+	LCD_DOZE2,
+	LPM_OFF = 20,
+	FORCE_OFF,
+	FORCE_ON,
+};
+
 /**
  * @section: Blocks to be updated
  */

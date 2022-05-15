@@ -1,6 +1,14 @@
 #include "stm_dev.h"
 #include "stm_reg.h"
 
+#if IS_ENABLED(CONFIG_SPU_VERIFY)
+#define SUPPORT_FW_SIGNED
+#endif
+
+#ifdef SUPPORT_FW_SIGNED
+#include <linux/spu-verify.h>
+#endif
+
 #define STM_TS_FILE_SIGNATURE 		0xAA55AA55
 
 enum {
@@ -44,21 +52,16 @@ struct stm_ts_header {
 
 #define WRITE_CHUNK_SIZE 1024
 #define DRAM_SIZE (32 * 1024) // 64kB
-
-#define CODE_ADDR_START 0x00000000
-#define CX_ADDR_START 0x00007000
-#define CONFIG_ADDR_START 0x00007C00
-
 #define	SIGNEDKEY_SIZE		(256)
 
 int stm_ts_check_dma_startanddone(struct stm_ts_data *ts)
 {
 	int timeout = 60;
-	u8 reg[6] = { 0xFA, 0x20, 0x00, 0x00, 0x71, 0xC0 };
+	u8 reg[6] = { STM_TS_CMD_REG_W, 0x20, 0x00, 0x00, 0x71, 0xC0 };
 	u8 val[1];
 	int ret;
 
-	ret = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+	ret = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev, "%s: failed to write\n", __func__);
 		return ret;
@@ -67,7 +70,8 @@ int stm_ts_check_dma_startanddone(struct stm_ts_data *ts)
 	sec_delay(10);
 
 	do {
-		ret = ts->stm_ts_i2c_read(ts, &reg[0], 5, (u8 *)val, 1);
+		reg[0] = STM_TS_CMD_REG_R;
+		ret = ts->stm_ts_read(ts, &reg[0], 5, (u8 *)val, 1);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: failed to read\n", __func__);
 			return ret;
@@ -91,12 +95,12 @@ int stm_ts_check_dma_startanddone(struct stm_ts_data *ts)
 static int stm_ts_check_erase_done(struct stm_ts_data *ts)
 {
 	int timeout = 60;  // 3 sec timeout
-	u8 reg[5] = { 0xFA, 0x20, 0x00, 0x00, 0x6A };
+	u8 reg[5] = { STM_TS_CMD_REG_R, 0x20, 0x00, 0x00, 0x6A };
 	u8 val[1];
 	int ret;
 
 	do {
-		ret = ts->stm_ts_i2c_read(ts, &reg[0], 5, (u8 *)val, 1);
+		ret = ts->stm_ts_read(ts, &reg[0], 5, (u8 *)val, 1);
 		if (ret < 0) {
 			input_err(true, &ts->client->dev, "%s: failed to read\n", __func__);
 			return ret;
@@ -169,7 +173,7 @@ int stm_ts_fw_fillflash(struct stm_ts_data *ts, u32 address, u8 *data, int size)
 
 			memcpy(&buff[index], data, towrite);
 
-			rc = ts->stm_ts_i2c_write(ts, &buff[0], index + towrite, NULL, 0);
+			rc = ts->stm_ts_write(ts, &buff[0], index + towrite, NULL, 0);
 			if (rc < 0) {
 				input_err(true, &ts->client->dev,
 						"%s failed to write i2c register. ret:%d\n",
@@ -203,7 +207,7 @@ int stm_ts_fw_fillflash(struct stm_ts_data *ts, u32 address, u8 *data, int size)
 		buff2[index++] = (u8) ((byteblock & 0x0000FF00) >> 8);
 		buff2[index++] = 0x00;
 
-		rc = ts->stm_ts_i2c_write(ts, &buff2[0], index, NULL, 0);
+		rc = ts->stm_ts_write(ts, &buff2[0], index, NULL, 0);
 		if (rc < 0) {
 			input_err(true, &ts->client->dev,
 					"%s failed to write i2c register. ret:%d\n",
@@ -230,6 +234,7 @@ static int stm_ts_fw_burn(struct stm_ts_data *ts, const u8 *fw_data)
 	int i;
 	u8 reg[STM_TS_EVENT_BUFF_SIZE] = {0};
 	int numberofmainblock = 0;
+	int indexofconfigblock = 0;
 
 	fw_header = (struct stm_ts_header *) &fw_data[0];
 
@@ -241,38 +246,46 @@ static int stm_ts_fw_burn(struct stm_ts_data *ts, const u8 *fw_data)
 	input_info(true, &ts->client->dev, "%s: Number Of MainBlock: %d\n",
 			__func__, numberofmainblock);
 
+	indexofconfigblock = fw_header->fw_area_bs + fw_header->panel_area_bs + fw_header->cx_area_bs;
+	input_info(true, &ts->client->dev, "%s: Index of Config Block: %d\n",
+			__func__, indexofconfigblock);
+
 	// System Reset and Hold
-	reg[0] = 0xFA;
+	reg[0] = STM_TS_CMD_REG_W;
 	reg[1] = 0x20;
 	reg[2] = 0x00;
 	reg[3] = 0x00;
 	reg[4] = 0x24;
 	reg[5] = 0x01;
-	rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+	rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 	if (rc < 0)
 		return rc;
 	sec_delay(200);
 
+	rc = stm_ts_wire_mode_change(ts, reg);
+	if (rc < 0)
+		return rc;
+
 	// Change application mode
-	reg[0] = 0xFA;
+	reg[0] = STM_TS_CMD_REG_W;
 	reg[1] = 0x20;
 	reg[2] = 0x00;
 	reg[3] = 0x00;
 	reg[4] = 0x25;
 	reg[5] = 0x20;
-	rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+	rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 	if (rc < 0)
 		return rc;
 	sec_delay(200);
 
 	// Unlock Flash
-	reg[0] = 0xFA;
+	reg[0] = STM_TS_CMD_REG_W;
 	reg[1] = 0x20;
 	reg[2] = 0x00;
 	reg[3] = 0x00;
 	reg[4] = 0xDE;
 	reg[5] = 0x03;
-	rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+	rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 	if (rc < 0)
 		return rc;
 	sec_delay(200);
@@ -280,24 +293,24 @@ static int stm_ts_fw_burn(struct stm_ts_data *ts, const u8 *fw_data)
 	//==================== Erase Partial Flash ====================
 	input_info(true, &ts->client->dev, "%s: Start Flash(Main Block) Erasing\n", __func__);
 	for (i = 0; i < numberofmainblock; i++) {
-		reg[0] = 0xFA;
+		reg[0] = STM_TS_CMD_REG_W;
 		reg[1] = 0x20;
 		reg[2] = 0x00;
 		reg[3] = 0x00;
 		reg[4] = 0x6B;
 		reg[5] = 0x00;
-		rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+		rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 		if (rc < 0)
 			return rc;
 		sec_delay(50);
 
-		reg[0] = 0xFA;
+		reg[0] = STM_TS_CMD_REG_W;
 		reg[1] = 0x20; 
 		reg[2] = 0x00;
 		reg[3] = 0x00; 
 		reg[4] = 0x6A;
 		reg[5] = (0x80 + i) & 0xFF;
-		rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+		rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 		if (rc < 0)
 			return rc;
 		rc = stm_ts_check_erase_done(ts);
@@ -306,24 +319,28 @@ static int stm_ts_fw_burn(struct stm_ts_data *ts, const u8 *fw_data)
 	}
 
 	input_info(true, &ts->client->dev, "%s: Start Flash(Config Block) Erasing\n", __func__);
-	reg[0] = 0xFA;
+	reg[0] = STM_TS_CMD_REG_W;
 	reg[1] = 0x20;
 	reg[2] = 0x00;
 	reg[3] = 0x00;
 	reg[4] = 0x6B;
 	reg[5] = 0x00;
-	rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+	rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 	if (rc < 0)
 		return rc;
 	sec_delay(50);
 
-	reg[0] = 0xFA;
+	reg[0] = STM_TS_CMD_REG_W;
 	reg[1] = 0x20;
 	reg[2] = 0x00;
 	reg[3] = 0x00;
 	reg[4] = 0x6A;
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_STM_SPI)
+	reg[5] = (0x80 + indexofconfigblock) & 0xFF;
+#else
 	reg[5] = (0x80 + 31) & 0xFF;
-	rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+#endif
+	rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 	if (rc < 0)
 		return rc;
 
@@ -366,13 +383,14 @@ static int stm_ts_fw_burn(struct stm_ts_data *ts, const u8 *fw_data)
 				__func__, fw_header->sec2_size);
 	}
 
-	reg[0] = 0xFA;
+	reg[0] = STM_TS_CMD_REG_W;
 	reg[1] = 0x20;
 	reg[2] = 0x00;
 	reg[3] = 0x00;
 	reg[4] = 0x24;
 	reg[5] = 0x80;
-	rc = ts->stm_ts_i2c_write(ts, &reg[0], 6, NULL, 0);
+
+	rc = ts->stm_ts_write(ts, &reg[0], 6, NULL, 0);
 	if (rc < 0)
 		return rc;
 	sec_delay(200);
@@ -408,7 +426,7 @@ static void stm_ts_set_factory_history_data(struct stm_ts_data *ts, u8 level)
 	regaddr[1] = 0x04;
 	regaddr[2] = wlevel;
 
-	ret = ts->stm_ts_i2c_write(ts, regaddr, 3, NULL, 0);
+	ret = ts->stm_ts_write(ts, regaddr, 3, NULL, 0);
 	if (ret < 0) {
 		input_err(true, &ts->client->dev,
 				"%s: failed to write factory level %d\n", __func__, wlevel);
@@ -426,15 +444,6 @@ static void stm_ts_set_factory_history_data(struct stm_ts_data *ts, u8 level)
 	input_info(true, &ts->client->dev, "%s: save to flash area, level=%d\n", __func__, wlevel);
 	return;
 }
-
-#ifdef TCLM_CONCEPT
-int stm_ts_tclm_execute_force_calibration(struct i2c_client *client, int cal_mode)
-{
-	struct stm_ts_data *ts = (struct stm_ts_data *)i2c_get_clientdata(client);
-
-	return stm_ts_execute_autotune(ts, true);
-}
-#endif
 
 int stm_ts_execute_autotune(struct stm_ts_data *ts, bool issaving)
 {
@@ -465,7 +474,7 @@ int stm_ts_execute_autotune(struct stm_ts_data *ts, bool issaving)
 			ts->tdata->nvdata.cal_fail_falg = SEC_CAL_PASS;
 			ts->is_cal_done = true;
 		}
-		ts->tdata->tclm_write(ts->tdata->client, SEC_TCLM_NVM_ALL_DATA);
+		stm_tclm_data_write(ts, SEC_TCLM_NVM_ALL_DATA);
 #endif
 		if (rc < 0) {
 			input_err(true, &ts->client->dev, "%s: timeout\n", __func__);
@@ -576,7 +585,7 @@ int stm_ts_fw_update_on_probe(struct stm_ts_data *ts)
 	if (ts->tdata->support_tclm_test) {
 		ret = sec_tclm_test_on_probe(ts->tdata);
 		if (ret < 0)
-			input_info(true, &ts->client->dev, "%s: SEC_TCLM_NVM_ALL_DATA i2c read fail", __func__);
+			input_info(true, &ts->client->dev, "%s: SEC_TCLM_NVM_ALL_DATA read fail", __func__);
 	}
 #endif
 
@@ -597,7 +606,7 @@ int stm_ts_fw_update_on_probe(struct stm_ts_data *ts)
 		input_err(true, &ts->client->dev,
 				"%s: Firmware image %s not available\n", __func__,
 				fw_path);
-		retval = -ENOENT;
+		retval = STM_TS_NOT_ERROR;
 		goto exit_fwload;
 	}
 
@@ -645,6 +654,15 @@ int stm_ts_fw_update_on_probe(struct stm_ts_data *ts)
 	else
 		retval = STM_TS_NOT_ERROR;
 
+	if ((ts->plat_data->bringup == 3) &&
+			((ts->fw_main_version_of_ic != ts->fw_main_version_of_bin)
+			|| (ts->config_version_of_ic != ts->config_version_of_bin)
+			|| (ts->fw_version_of_ic != ts->fw_version_of_bin))) {
+		input_info(true, &ts->client->dev,
+				"%s: bringup 3, force update because version is different\n", __func__);
+		retval = STM_TS_NEED_FW_UPDATE;
+	}
+
 	/* ic fw ver > bin fw ver && force is false */
 	if (retval != STM_TS_NEED_FW_UPDATE) {
 		input_err(true, &ts->client->dev, "%s: skip fw update\n", __func__);
@@ -657,7 +675,7 @@ int stm_ts_fw_update_on_probe(struct stm_ts_data *ts)
 		goto done;
 
 #ifdef TCLM_CONCEPT
-	ret = ts->tdata->tclm_read(ts->tdata->client, SEC_TCLM_NVM_ALL_DATA);
+	ret = stm_tclm_data_read(ts, SEC_TCLM_NVM_ALL_DATA);
 	if (ret < 0) {
 		input_info(true, &ts->client->dev, "%s: SEC_TCLM_NVM_ALL_DATA i2c read fail", __func__);
 		goto done;
@@ -689,8 +707,7 @@ done:
 #ifdef TCLM_CONCEPT
 	sec_tclm_root_of_cal(ts->tdata, CALPOSITION_NONE);
 #endif
-	if (fw_entry)
-		release_firmware(fw_entry);
+	release_firmware(fw_entry);
 exit_fwload:
 	return retval;
 }
@@ -809,19 +826,19 @@ static int stm_ts_load_fw(struct stm_ts_data *ts, int update_type)
 		long spu_ret = 0, org_size = 0;
 		if (update_type == TSP_VERIFICATION) {
 			org_size = fw_entry->size - SPU_METADATA_SIZE(TSP);
-		spu_ret = spu_firmware_signature_verify("TSP", fw_entry->data, fw_entry->size);
-		if (spu_ret != org_size) {
-			input_err(true, &ts->client->dev, "%s: signature verify failed, spu_ret:%ld, org_size:%ld\n",
-				__func__, spu_ret, org_size);
-			error = -EPERM;
-		}
-			release_firmware(fw_entry);
+			spu_ret = spu_firmware_signature_verify("TSP", fw_entry->data, fw_entry->size);
+			if (spu_ret != org_size) {
+				input_err(true, &ts->client->dev, "%s: signature verify failed, spu_ret:%ld, org_size:%ld\n",
+					__func__, spu_ret, org_size);
+				error = -EPERM;
+			}
 			goto done;
-
 		} else if (update_type == TSP_SPU && ts->ic_name_of_ic == header->ic_name
 				&& ts->project_id_of_ic == header->project_id
 				&& ts->module_version_of_ic == header->module_ver) {
-			if (ts->fw_version_of_ic >= header->fw_ver) {
+			if ((ts->fw_main_version_of_ic >= header->ext_release_ver)
+				&& (ts->config_version_of_ic >= header->cfg_ver)
+				&& (ts->fw_version_of_ic >= header->fw_ver)) {
 				input_info(true, &ts->client->dev, "%s: skip spu update\n", __func__);
 				error = 0;
 				goto done;
@@ -875,7 +892,7 @@ err_request_fw:
 
 int stm_ts_fw_update_on_hidden_menu(struct stm_ts_data *ts, int update_type)
 {
-	int retval = 0;
+	int retval = SEC_ERROR;
 
 	/* Factory cmd for firmware update
 	 * argument represent what is source of firmware like below.

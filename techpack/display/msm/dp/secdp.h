@@ -96,6 +96,7 @@ struct secdp_event_data {
 #ifdef SECDP_SELF_TEST
 #define ST_EDID_SIZE	256
 #define ST_ARG_CNT	20
+#define ST_TEST_EXIT	555
 
 enum {
 	ST_CLEAR_CMD,
@@ -445,9 +446,9 @@ struct secdp_misc {
 	struct delayed_work self_test_reconnect_work;
 	struct delayed_work self_test_hdcp_test_work;
 
-	void (*self_test_reconnect_callback)(void);
-	void (*self_test_hdcp_on_callback)(void);
-	void (*self_test_hdcp_off_callback)(void);
+	void (*self_test_reconnect_cb)(void);
+	void (*self_test_hdcp_on_cb)(void);
+	void (*self_test_hdcp_off_cb)(void);
 
 	u8 self_test_edid[ST_EDID_SIZE];
 #endif

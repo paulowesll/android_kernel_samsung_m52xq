@@ -17,7 +17,7 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/i2c.h>
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #endif
@@ -507,7 +507,7 @@ static void i2c_transport_enable(struct dbmdx_private *p, bool enable)
 
 	if (enable) {
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 		if (i2c_p->ps_nosuspend_wl)
 			__pm_stay_awake(i2c_p->ps_nosuspend_wl);
 #endif
@@ -529,7 +529,7 @@ static void i2c_transport_enable(struct dbmdx_private *p, bool enable)
 		p->wakeup_set(p);
 		msleep(DBMDX_MSLEEP_I2C_WAKEUP);
 	} else {
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 		if (i2c_p->ps_nosuspend_wl)
 			__pm_relax(i2c_p->ps_nosuspend_wl);
 #endif
@@ -746,7 +746,7 @@ static int i2c_set_write_chunk_size(struct dbmdx_private *p, u32 size)
 int i2c_common_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
 {
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	struct  device_node *np;
 #endif
 	int ret;
@@ -763,7 +763,7 @@ int i2c_common_probe(struct i2c_client *client,
 	p->dev = &client->dev;
 
 	p->chip.pdata = p;
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	np = p->dev->of_node;
 	if (!np) {
 		dev_err(p->dev, "%s: no devicetree entry\n", __func__);
@@ -788,7 +788,7 @@ int i2c_common_probe(struct i2c_client *client,
 	/* remember boot address */
 	pdata->boot_addr = (u32)(p->client->addr);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "operational-addr",
 		&(pdata->operation_addr));
 	if (ret != 0) {
@@ -804,7 +804,7 @@ int i2c_common_probe(struct i2c_client *client,
 	dev_info(p->dev, "%s: setting operational addr to 0x%2.2x\n",
 			__func__, pdata->operation_addr);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "read-chunk-size",
 		&pdata->read_chunk_size);
 	if (ret != 0) {
@@ -825,7 +825,7 @@ int i2c_common_probe(struct i2c_client *client,
 	dev_info(p->dev, "%s: Setting i2c read chunk to %u bytes\n",
 			__func__, pdata->read_chunk_size);
 
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 	ret = of_property_read_u32(np, "write-chunk-size",
 		&pdata->write_chunk_size);
 	if (ret != 0) {
@@ -848,7 +848,7 @@ int i2c_common_probe(struct i2c_client *client,
 
 	p->pdata = pdata;
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	p->ps_nosuspend_wl =
 			wakeup_source_create("dbmdx_nosuspend_wakelock_i2c");
 
@@ -893,7 +893,7 @@ int i2c_common_probe(struct i2c_client *client,
 	dev_info(&client->dev, "%s: successfully probed\n", __func__);
 	ret = 0;
 	goto out;
-#ifdef CONFIG_OF
+#if IS_ENABLED(CONFIG_OF)
 out_err_kfree:
 #endif
 	kfree(p);
@@ -906,7 +906,7 @@ int i2c_common_remove(struct i2c_client *client)
 	struct chip_interface *ci = i2c_get_clientdata(client);
 	struct dbmdx_i2c_private *p = (struct dbmdx_i2c_private *)ci->pdata;
 
-#ifdef CONFIG_PM_WAKELOCKS
+#if IS_ENABLED(CONFIG_PM_WAKELOCKS)
 	if (p->ps_nosuspend_wl)	{
 		wakeup_source_remove(p->ps_nosuspend_wl);
 		wakeup_source_destroy(p->ps_nosuspend_wl);
